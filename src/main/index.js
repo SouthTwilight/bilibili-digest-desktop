@@ -82,13 +82,10 @@ function createWindow() {
       .replace(/\s*bilibili-digest-desktop\/\S+/i, ""),
   );
 
+  // The Bilibili view stays pristine: no preload, no injected UI. Note
+  // taking happens from the sidebar button only.
   browserView = new WebContentsView({
-    webPreferences: {
-      session: bilibiliSession,
-      preload: join(__dirname, "../preload/browser.cjs"),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
+    webPreferences: { session: bilibiliSession },
   });
   mainWindow.contentView.addChildView(browserView);
   layoutBrowserView();
@@ -135,16 +132,6 @@ function createWindow() {
   };
   contents.on("did-navigate", notifyVideoChange);
   contents.on("did-navigate-in-page", notifyVideoChange);
-
-  // "n" note shortcut pressed inside the Bilibili page → forward to sidebar.
-  ipcMain.on("note:shortcut-n", (_event, payload) => {
-    const parsed = parseVideoPageUrl(payload?.url || contents.getURL());
-    mainWindow?.webContents.send("note:shortcut", {
-      ...payload,
-      bvid: parsed?.bvid || null,
-      page: parsed?.page || 1,
-    });
-  });
 
   contents.loadURL("https://www.bilibili.com/");
 

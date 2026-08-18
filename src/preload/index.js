@@ -37,6 +37,4 @@ contextBridge.exposeInMainWorld("desktop", {
     ipcRenderer.on("digest:progress", (_event, progress) => callback(progress)),
   onNavState: (callback) =>
     ipcRenderer.on("nav:state", (_event, state) => callback(state)),
-  onNoteShortcut: (callback) =>
-    ipcRenderer.on("note:shortcut", (_event, payload) => callback(payload)),
 });

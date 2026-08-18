@@ -15,10 +15,7 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        input: {
-          index: resolve(__dirname, "src/preload/index.js"),
-          browser: resolve(__dirname, "src/preload/browser.js"),
-        },
+        input: { index: resolve(__dirname, "src/preload/index.js") },
         // Sandboxed renderers can only execute CommonJS preloads, even when
         // the rest of the project is ESM.
         output: { format: "cjs", entryFileNames: "[name].cjs" },
