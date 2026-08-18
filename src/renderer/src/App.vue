@@ -60,6 +60,30 @@ async function finishOnboarding() {
   window.desktop.setViewVisible(true);
 }
 
+// Sidebar drag-resize. The sidebar column starts at x=0, so the cursor's
+// clientX is the desired width; IPC is throttled during the drag.
+let lastResizeSent = 0;
+function streamResize(width) {
+  const now = Date.now();
+  if (now - lastResizeSent < 60) return;
+  lastResizeSent = now;
+  window.desktop.resizeSidebar(width);
+}
+function startResize(event) {
+  event.preventDefault();
+  const clamp = (x) => Math.min(820, Math.max(400, Math.round(x)));
+  const onMove = (ev) => streamResize(clamp(ev.clientX));
+  const onUp = (ev) => {
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+    document.body.style.cursor = "";
+    window.desktop.resizeSidebar(clamp(ev.clientX));
+  };
+  document.body.style.cursor = "col-resize";
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+}
+
 onUnmounted(() => off.forEach((fn) => fn()));
 
 function prettyUrl(url) {
@@ -121,6 +145,7 @@ const navHome = () => window.desktop.navHome();
           </div>
         </main>
       </div>
+      <div class="sidebar-resizer" title="拖动调整侧边栏宽度" @mousedown="startResize"></div>
     </div>
 
     <div v-if="onboarding.visible" class="onboarding-overlay">

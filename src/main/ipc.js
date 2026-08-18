@@ -14,7 +14,7 @@ function onProgress(phase) {
   return (title, subtitle) => pushProgress({ phase, title, subtitle });
 }
 
-export function registerIpcHandlers({ settingsStore, digestCache, notesStore, exportQueue, getBrowserView, setBrowserViewVisible }) {
+export function registerIpcHandlers({ settingsStore, digestCache, notesStore, exportQueue, getBrowserView, setBrowserViewVisible, resizeSidebar }) {
   ipcMain.handle("settings:get", () => settingsStore.load());
   ipcMain.handle("settings:set", (_event, input) => settingsStore.save(input || {}));
 
@@ -311,6 +311,12 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
   // Hide/show the embedded browser view while an app-level modal is open.
   ipcMain.handle("view:set-visible", (_event, visible) => {
     setBrowserViewVisible?.(!!visible);
+    return { success: true };
+  });
+
+  // Sidebar drag-resize: the renderer streams the desired width.
+  ipcMain.handle("layout:resize-sidebar", (_event, width) => {
+    resizeSidebar?.(Number(width) || 480);
     return { success: true };
   });
 

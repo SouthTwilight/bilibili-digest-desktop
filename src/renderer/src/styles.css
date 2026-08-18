@@ -340,3 +340,21 @@ html {
 .onboarding-dir { display: flex; gap: 10px; align-items: center; }
 .onboarding-dir-path { flex: 1; font-size: 12.5px; color: var(--muted); background: var(--surface-soft); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; word-break: break-all; }
 .onboarding-actions { display: flex; justify-content: flex-end; }
+
+/* ---- sidebar drag resizer ---- */
+.sidebar-resizer {
+  flex: 0 0 6px;
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+}
+.sidebar-resizer::after {
+  content: "";
+  position: absolute;
+  inset: 0 2px;
+  border-radius: 3px;
+}
+.sidebar-resizer:hover::after, .sidebar-resizer:active::after {
+  background: var(--pink);
+}

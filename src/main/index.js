@@ -12,22 +12,52 @@ import { isAllowedUrl } from "./core/url-policy.js";
 // Sidebar hosts the Vue app (the window's own page); the browser view fills
 // the remaining space and is the ONLY place Bilibili pages render. The Vue
 // page also renders a thin navigation toolbar above the browser view area.
-const SIDEBAR_DEFAULT_WIDTH = 380;
+// The sidebar is drag-resizable; the browser view area shrinks accordingly.
+const SIDEBAR_DEFAULT_WIDTH = 480;
+const SIDEBAR_MIN_WIDTH = 400;
+const SIDEBAR_MAX_WIDTH = 820;
 const TOOLBAR_HEIGHT = 44;
 
 let mainWindow = null;
 let browserView = null;
 let sidebarWidth = SIDEBAR_DEFAULT_WIDTH;
+let pushLayout = () => {};
 
 function layoutBrowserView() {
   if (!mainWindow || !browserView) return;
   const { width, height } = mainWindow.getContentBounds();
+  const viewWidth = Math.max(0, width - sidebarWidth);
   browserView.setBounds({
     x: sidebarWidth,
     y: TOOLBAR_HEIGHT,
-    width: Math.max(0, width - sidebarWidth),
+    width: viewWidth,
     height: Math.max(0, height - TOOLBAR_HEIGHT),
   });
+}
+
+// Bilibili pins per-breakpoint layout widths (homepage tier ≥1100px, video
+// pages ~1080px). Instead of overriding each pinned width, scale the page:
+// the layout viewport becomes viewWidth/zoom, so Bilibili renders its proper
+// desktop tier and the whole page fits without horizontal scrolling. Zoom is
+// reset whenever a navigation commits, so it must be re-applied after loads.
+function applyBrowserZoom() {
+  if (!mainWindow || !browserView) return;
+  const { width } = mainWindow.getContentBounds();
+  const viewWidth = Math.max(0, width - sidebarWidth);
+  if (viewWidth > 0) {
+    const zoom = Math.min(1, Math.max(0.55, viewWidth / 1140));
+    try {
+      browserView.webContents.setZoomFactor(zoom);
+    } catch {
+      // Zooming during teardown races are harmless.
+    }
+  }
+}
+
+function resizeSidebar(width) {
+  sidebarWidth = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)));
+  layoutBrowserView();
+  pushLayout();
 }
 
 function createWindow() {
@@ -50,7 +80,7 @@ function createWindow() {
 
   mainWindow.on("ready-to-show", () => mainWindow.show());
 
-  mainWindow.on("resize", layoutBrowserView);
+  mainWindow.on("resize", () => { layoutBrowserView(); applyBrowserZoom(); });
 
   // The Vue sidebar is the window page itself; it renders in the left column
   // and leaves the remaining width transparent for the browser view.
@@ -59,9 +89,10 @@ function createWindow() {
   } else {
     mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
   }
-  const pushLayout = () =>
+  const pushLayoutLocal = () =>
     mainWindow?.webContents.send("layout:update", { sidebarWidth });
-  mainWindow.webContents.on("did-finish-load", pushLayout);
+  pushLayout = pushLayoutLocal;
+  mainWindow.webContents.on("did-finish-load", pushLayoutLocal);
 
   // Persistent, Bilibili-only browsing session. The UA is normalized so the
   // embedded Chromium does not advertise itself as Electron to risk control.
@@ -124,6 +155,36 @@ function createWindow() {
   contents.on("did-navigate", notifyVideoChange);
   contents.on("did-navigate-in-page", notifyVideoChange);
 
+  // Bilibili's new homepage pins a large min-width on its root/header
+  // (banner), which overflows the browser-view column and forces horizontal
+  // scrolling. Re-inject a fit override after every navigation.
+  const BILI_FIT_CSS =
+    "html, body, #i_cecream { min-width: 0 !important; } " +
+    // B站 pins the header bar's width per breakpoint (e.g. width:1100px on
+    // the smallest tier); stretch it to the real viewport instead.
+    ".bili-header, .bili-header__bar { width: 100% !important; min-width: 0 !important; max-width: 100% !important; } " +
+    ".bili-header__center, .bili-header__banner, .browser-tip, .bili-feed4, .bili-video-card__wrap { min-width: 0 !important; max-width: 100% !important; } " +
+    // The homepage banner ships 1728px-wide raw <img>s; cap them to the
+    // viewport instead of letting them force horizontal scrolling.
+    ".bili-banner img, .bili-header img, header.bili-header img, .v-img.banner-img { max-width: 100% !important; height: auto !important; }";
+  let fitCssKey = null;
+  const injectFitCss = async () => {
+    try {
+      // No removeCSS on this Electron build; re-inserting is idempotent and
+      // stale injections die with their document anyway.
+      fitCssKey = await contents.insertCSS(BILI_FIT_CSS, { cssOrigin: "author" });
+    } catch {
+      // Pre-navigation injection races are harmless; the next event retries.
+    }
+  };
+  const afterNavigation = () => {
+    applyBrowserZoom();
+    injectFitCss();
+  };
+  contents.on("did-navigate", afterNavigation);
+  contents.on("did-navigate-in-page", afterNavigation);
+  contents.once("did-finish-load", afterNavigation);
+
   contents.loadURL("https://www.bilibili.com/");
 
   mainWindow.on("closed", () => {
@@ -177,6 +238,7 @@ app.whenReady().then(() => {
     exportQueue,
     getBrowserView: () => browserView,
     setBrowserViewVisible,
+    resizeSidebar,
   });
 
   createWindow();
