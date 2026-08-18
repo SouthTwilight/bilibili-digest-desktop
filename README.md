@@ -49,7 +49,7 @@
 - 有 B 站字幕的视频不需要 ASR，始终零成本。
 - 新用户 / 新开通时可能有免费额度，具体以阿里云百炼控制台实时价格和活动为准。
 
-官方文档：[阿里云百炼 - 获取 API Key](https://help.aliyun.com/zh/model-studio/get-api-key)、[模型调用计费](https://help.aliyun.com/zh/model-studio/model-pricing)
+官方文档：[阿里云百炼 - 获取 API Key](https://bailian.console.aliyun.com/)、[模型调用计费](https://help.aliyun.com/zh/model-studio/model-pricing)
 
 ### 火山引擎（语音识别，可选）
 
@@ -68,7 +68,7 @@
 - 语音识别有并发配额，导出队列会对 ASR 任务严格串行；并发不足时会提示稍后重试。
 - 具体价格以火山引擎控制台「计费说明」和开通页面为准。
 
-官方文档：[豆包语音 - 调用流程](https://docs.volcengine.com/docs/6561/113644?lang=zh)、[豆包语音 - 计费说明](https://docs.volcengine.com/docs/6561/1359370?lang=zh)
+官方文档：[豆包语音 - 调用流程](https://console.volcengine.com/speech)、[豆包语音 - 计费说明](https://docs.volcengine.com/docs/6561/1359370?lang=zh)
 
 ### DeepSeek（文本模型）
 
