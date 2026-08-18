@@ -36,9 +36,10 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
 
   // Transcript for the sidebar: cache-first, then subtitle/ASR. Each source
   // keeps its own slot in the cache so switching back and forth never
-  // re-fetches (and never re-pays for ASR). `mode` ("auto"|"asr"|"subtitle")
-  // picks the source; the last loaded one stays the active transcript used
-  // for analysis.
+  // re-fetches (and never re-pays for ASR). A user's explicit source switch
+  // is stored as `sourceOverride` and survives background auto-reloads
+  // (Bilibili's in-page navigations re-trigger auto mode, which must not
+  // silently flip the video back to the other source).
   ipcMain.handle("transcript:get", async (_event, { videoId, page, mode }) => {
     const page_ = Math.max(1, Number(page) || 1);
     const cacheKey = `${videoId}@p${page_}`;
@@ -51,6 +52,7 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
       else slots.asr = cached.transcript;
     }
     const translationsBySource = cached.translationsBySource || {};
+    let sourceOverride = cached.sourceOverride || null;
     const translationsFor = (slot) =>
       slot === "asr" ? translationsBySource.asr || {} : translationsBySource.subtitle || {};
 
@@ -61,27 +63,37 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
         transcript, // active transcript (analysis reads this)
         transcripts: slots,
         translationsBySource,
+        sourceOverride,
       });
     };
 
     const wantAsr = mode === "asr";
     const wantSubtitle = mode === "subtitle";
+    if (wantAsr) sourceOverride = "asr";
+    if (wantSubtitle) sourceOverride = "subtitle";
 
     // Cache hits for the explicitly requested source.
     if (wantAsr && slots.asr?.success) {
+      persist("asr", slots.asr);
       return { success: true, fromCache: true, transcript: slots.asr, translations: translationsFor("asr") };
     }
     if (wantSubtitle && slots.subtitle?.success) {
+      persist("subtitle", slots.subtitle);
       return { success: true, fromCache: true, transcript: slots.subtitle, translations: translationsFor("subtitle") };
     }
 
     try {
       const settings = settingsStore.load();
 
-      // auto: subtitle slot first. When an ASR slot already exists, probe
-      // subtitles only — a failed probe reuses the paid ASR transcript
-      // instead of re-running recognition.
       if (!wantAsr) {
+        // The user's explicit choice always wins over the default order.
+        if (sourceOverride === "asr" && slots.asr?.success) {
+          persist("asr", slots.asr);
+          return { success: true, fromCache: true, transcript: slots.asr, translations: translationsFor("asr") };
+        }
+        // auto: subtitle slot first. When an ASR slot already exists, probe
+        // subtitles only — a failed probe reuses the paid ASR transcript
+        // instead of re-running recognition.
         if (slots.subtitle?.success) {
           persist("subtitle", slots.subtitle);
           return { success: true, fromCache: true, transcript: slots.subtitle, translations: translationsFor("subtitle") };
@@ -119,6 +131,7 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
           transcripts: slots,
           translationsBySource,
           details: existingDetails,
+          sourceOverride,
         });
         return { success: true, transcript, translations: translationsFor(slotKey) };
       }
@@ -243,16 +256,17 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
 
   // ---- export queue / library ---------------------------------------------
 
-  ipcMain.handle("export:single", (_event, { bvid, page, format }) => {
+  ipcMain.handle("export:single", (_event, { bvid, page, format, sourceMode }) => {
     return exportQueue.enqueue({
       type: "single",
       format: format === "html" ? "html" : "md",
-      items: [{ bvid, page: page || 1 }],
+      items: [{ bvid, page: page || 1, sourceMode: sourceMode || "subtitle" }],
     });
   });
 
-  // Collection export preview: list every video with its subtitle status so
-  // the user can opt specific videos into ASR before confirming.
+  // Collection export preview: list every video with its CURRENT transcript
+  // source (what the sidebar last showed), subtitle availability, and cached
+  // ASR state, so defaults and ASR opt-ins reflect real per-video usage.
   ipcMain.handle("export:collection-preview", async (_event, videoId) => {
     try {
       const collection = collectionVideosFromView(await fetchBilibiliView(videoId));
@@ -260,21 +274,30 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
       const videos = [];
       for (let index = 0; index < collection.videos.length; index += 1) {
         const entry = collection.videos[index];
-        let hasSubtitle = false;
-        try {
-          hasSubtitle = await bilibiliVideoHasSubtitle(entry.bvid);
-        } catch {
-          hasSubtitle = false;
+        const cached = digestCache.load(`${entry.bvid}@p1`);
+        const hasCachedAsr = !!cached?.transcripts?.asr?.success;
+        const current = cached?.transcript?.success ? cached.transcript.source : null;
+        let hasSubtitle = current === "bilibili-subtitle";
+        if (!current) {
+          try {
+            hasSubtitle = await bilibiliVideoHasSubtitle(entry.bvid);
+          } catch {
+            hasSubtitle = false;
+          }
         }
-        videos.push({ ...entry, hasSubtitle });
+        videos.push({
+          ...entry,
+          hasSubtitle,
+          current,
+          cachedAsr: hasCachedAsr,
+          // ASR opt-in only matters when neither a current transcript, a
+          // cached ASR slot, nor a Bilibili track can serve the export.
+          needsAsr: !current && !hasCachedAsr && !hasSubtitle,
+        });
         pushProgress({ phase: "collection-preview", title: `正在检查合集字幕（${index + 1}/${collection.videos.length}）`, subtitle: entry.title });
         await new Promise((resolve) => setTimeout(resolve, 120));
       }
-      return {
-        success: true,
-        collectionTitle: collection.collectionTitle,
-        videos,
-      };
+      return { success: true, collectionTitle: collection.collectionTitle, videos };
     } catch (error) {
       return { success: false, error: error.message };
     }

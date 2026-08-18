@@ -23,7 +23,10 @@ async function refreshCollectionInfo() {
 
 async function exportSingleNow() {
   if (!currentVideo.value) return;
-  await window.desktop.exportSingle(currentVideo.value.bvid, currentVideo.value.page, exportFormat.value);
+  // Export what the user is actually looking at: the displayed transcript's
+  // source picks the queue item's source mode.
+  const source = transcript.value?.source === "bilibili-subtitle" ? "subtitle" : "asr";
+  await window.desktop.exportSingle(currentVideo.value.bvid, currentVideo.value.page, exportFormat.value, source);
   error.value = "";
   showToast("已加入导出队列，见「任务」页");
 }
@@ -40,7 +43,7 @@ async function openCollectionExport() {
   collectionModal.value.collectionTitle = result.collectionTitle;
   collectionModal.value.videos = result.videos.map((video) => ({
     ...video,
-    selected: video.hasSubtitle,
+    selected: video.current || video.cachedAsr || video.hasSubtitle,
     useAsr: false,
   }));
 }
@@ -53,7 +56,9 @@ async function confirmCollectionExport() {
       bvid: video.bvid,
       title: video.title,
       videoTitle: video.title,
-      useAsr: !video.hasSubtitle,
+      // Only genuinely-untranscribed videos trigger fresh ASR; everything
+      // else exports from cache at zero cost.
+      useAsr: video.needsAsr,
       format: exportFormat.value,
     }));
   if (!items.length) return;
@@ -371,8 +376,11 @@ function seek(seconds) {
           <label v-for="video in collectionModal.videos" :key="video.bvid" class="collection-export-row">
             <input type="checkbox" v-model="video.selected" />
             <span class="collection-export-row-title">{{ video.title }}</span>
-            <span class="collection-export-row-status" :class="video.hasSubtitle ? 'ok' : 'warn'">
-              {{ video.hasSubtitle ? "B站字幕" : "需ASR" }}
+            <span class="collection-export-row-status" :class="video.current === 'bilibili-subtitle' || (video.hasSubtitle && !video.current) ? 'ok' : video.current || video.cachedAsr ? 'info' : 'warn'">
+              {{ video.current === "bilibili-subtitle" ? "当前：B站字幕" :
+                 video.current ? "当前：ASR" :
+                 video.cachedAsr ? "ASR（缓存）" :
+                 video.hasSubtitle ? "B站字幕" : "需ASR" }}
             </span>
           </label>
         </div>

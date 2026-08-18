@@ -329,3 +329,4 @@ html {
 .task-item.failed .task-item-title { color: #c0392b; }
 .task-item-status { flex: 0 0 auto; width: 16px; }
 .task-item-title { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.collection-export-row-status.info { color: #0a7ca8; }
