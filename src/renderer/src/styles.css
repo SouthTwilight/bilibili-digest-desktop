@@ -246,3 +246,31 @@ html {
 .ro-dir { max-width: 210px; }
 
 .btn.small { padding: 5px 12px; font-size: 12px; margin-left: 8px; vertical-align: middle; }
+
+/* ---- translation modes / explain / notes ---- */
+.mode-row { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+.mode-btn { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 14px; font-size: 12.5px; cursor: pointer; color: var(--muted); }
+.mode-btn.active { background: rgba(251, 114, 153, 0.12); color: var(--pink-strong); border-color: var(--pink); font-weight: 600; }
+.translating-hint { font-size: 12px; color: var(--pink-strong); }
+
+.transcript-seg { display: flex; gap: 10px; padding: 8px; border-radius: 8px; cursor: pointer; }
+.transcript-seg:hover { background: var(--surface); }
+.seg-original { font-size: 13px; color: var(--muted); margin-bottom: 3px; }
+.seg-zh { font-size: 13.5px; line-height: 1.65; }
+.seg-zh.missing { color: var(--muted); }
+
+.explain-fab { position: fixed; z-index: 60; border: none; background: var(--pink); color: #fff; border-radius: 999px; padding: 5px 14px; font-size: 12.5px; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,.18); }
+.explain-overlay { position: fixed; inset: 0; background: rgba(24,25,28,.45); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.explain-dialog { width: 100%; max-width: 380px; max-height: 70vh; overflow-y: auto; background: var(--surface); border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+.explain-title { font-weight: 700; color: var(--pink-strong); }
+.explain-body { font-size: 13.5px; line-height: 1.75; white-space: pre-wrap; user-select: text; }
+
+.notes-filter { display: flex; gap: 6px; margin-bottom: 12px; }
+.note-item { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+.note-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.note-time { border: none; background: rgba(251,114,153,.12); color: var(--pink-strong); font-family: ui-monospace, monospace; font-weight: 700; font-size: 12px; border-radius: 6px; padding: 3px 8px; cursor: pointer; }
+.note-video { flex: 1; font-size: 11.5px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.note-del { border: none; background: none; color: var(--muted); font-size: 12px; cursor: pointer; }
+.note-del:hover { color: #c0392b; }
+.note-text { font-size: 13px; line-height: 1.65; user-select: text; }
+.note-toast { position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; font-size: 13px; border-radius: 999px; padding: 8px 18px; z-index: 120; }

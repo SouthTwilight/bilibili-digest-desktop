@@ -1,10 +1,16 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { providerInfo } from "./settings-store.js";
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
-const PROMPTS_DIR = join(MODULE_DIR, "../prompts");
+// In the bundled build every module collapses into out/main/index.js and the
+// prompts live at out/main/prompts (copied by scripts/copy-assets.mjs); when
+// run from source they sit at src/main/prompts, two levels up from core/.
+const ADJACENT_PROMPTS = join(MODULE_DIR, "prompts");
+const PROMPTS_DIR = existsSync(ADJACENT_PROMPTS)
+  ? ADJACENT_PROMPTS
+  : join(MODULE_DIR, "../prompts");
 
 const AI_IDLE_TIMEOUT_MS = 50_000;
 const AI_HARD_TIMEOUT_MS = 120_000;
@@ -68,8 +74,8 @@ export async function requestAiCompletion({ settings, messages, maxTokens, tempe
     timeoutKind = kind;
     controller.abort();
   };
-  const idle = setTimeout(() => abortForTimeout("idle"), AI_IDLE_TIMEOUT_MS);
   const hard = setTimeout(() => abortForTimeout("hard"), AI_HARD_TIMEOUT_MS);
+  let idle = setTimeout(() => abortForTimeout("idle"), AI_IDLE_TIMEOUT_MS);
   const resetIdle = () => {
     clearTimeout(idle);
     idle = setTimeout(() => abortForTimeout("idle"), AI_IDLE_TIMEOUT_MS);

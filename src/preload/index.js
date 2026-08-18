@@ -17,6 +17,16 @@ contextBridge.exposeInMainWorld("desktop", {
   navReload: () => ipcRenderer.invoke("nav:reload"),
   navHome: () => ipcRenderer.invoke("nav:home"),
 
+  translateBatch: (videoTitle, segments) =>
+    ipcRenderer.invoke("transcript:translate", { videoTitle, segments }),
+  explain: (payload) => ipcRenderer.invoke("explain", payload),
+  listNotes: (videoId) => ipcRenderer.invoke("notes:list", videoId),
+  addNote: (note) => ipcRenderer.invoke("notes:add", note),
+  deleteNote: (id) => ipcRenderer.invoke("notes:delete", id),
+  polishNote: (payload) => ipcRenderer.invoke("notes:polish", payload),
+  saveTranslations: (videoId, page, translations) =>
+    ipcRenderer.invoke("digest:save-translations", { videoId, page, translations }),
+
   onLayout: (callback) =>
     ipcRenderer.on("layout:update", (_event, layout) => callback(layout)),
   onVideoChanged: (callback) =>
@@ -25,4 +35,6 @@ contextBridge.exposeInMainWorld("desktop", {
     ipcRenderer.on("digest:progress", (_event, progress) => callback(progress)),
   onNavState: (callback) =>
     ipcRenderer.on("nav:state", (_event, state) => callback(state)),
+  onNoteShortcut: (callback) =>
+    ipcRenderer.on("note:shortcut", (_event, payload) => callback(payload)),
 });

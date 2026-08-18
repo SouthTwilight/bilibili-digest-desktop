@@ -1,8 +1,9 @@
-import { app, BrowserWindow, WebContentsView, shell, session } from "electron";
+import { app, BrowserWindow, WebContentsView, shell, session, ipcMain } from "electron";
 import { join } from "node:path";
 import { registerIpcHandlers } from "./ipc.js";
 import { createSettingsStore } from "./core/settings-store.js";
 import { createDigestCache } from "./core/digest-cache.js";
+import { createNotesStore } from "./core/notes.js";
 import { initBilibiliHttp } from "./core/http.js";
 import { parseVideoPageUrl } from "./core/bilibili.js";
 
@@ -81,7 +82,14 @@ function createWindow() {
       .replace(/\s*bilibili-digest-desktop\/\S+/i, ""),
   );
 
-  browserView = new WebContentsView({ webPreferences: { session: bilibiliSession } });
+  browserView = new WebContentsView({
+    webPreferences: {
+      session: bilibiliSession,
+      preload: join(__dirname, "../preload/browser.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
   mainWindow.contentView.addChildView(browserView);
   layoutBrowserView();
 
@@ -128,6 +136,16 @@ function createWindow() {
   contents.on("did-navigate", notifyVideoChange);
   contents.on("did-navigate-in-page", notifyVideoChange);
 
+  // "n" note shortcut pressed inside the Bilibili page → forward to sidebar.
+  ipcMain.on("note:shortcut-n", (_event, payload) => {
+    const parsed = parseVideoPageUrl(payload?.url || contents.getURL());
+    mainWindow?.webContents.send("note:shortcut", {
+      ...payload,
+      bvid: parsed?.bvid || null,
+      page: parsed?.page || 1,
+    });
+  });
+
   contents.loadURL("https://www.bilibili.com/");
 
   mainWindow.on("closed", () => {
@@ -144,7 +162,8 @@ app.whenReady().then(() => {
     saveDir: join(app.getPath("documents"), "BilibiliDigest"),
   });
   const digestCache = createDigestCache(join(app.getPath("userData"), "digest-cache"));
-  registerIpcHandlers({ settingsStore, digestCache, getBrowserView: () => browserView });
+  const notesStore = createNotesStore(join(app.getPath("userData"), "notes.json"));
+  registerIpcHandlers({ settingsStore, digestCache, notesStore, getBrowserView: () => browserView });
 
   createWindow();
 

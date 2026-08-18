@@ -2,6 +2,8 @@ import { ipcMain, dialog, shell, BrowserWindow } from "electron";
 import { fetchTranscript } from "./core/transcript-service.js";
 import { getVideoDetails, getCollectionInfo } from "./core/bilibili.js";
 import { analyzeTranscript } from "./core/ai.js";
+import { translateTranscriptBatch } from "./core/translation.js";
+import { explainSelection, cleanupNoteText } from "./core/explain.js";
 
 function pushProgress(payload) {
   BrowserWindow.getAllWindows()[0]?.webContents.send("digest:progress", payload);
@@ -11,7 +13,7 @@ function onProgress(phase) {
   return (title, subtitle) => pushProgress({ phase, title, subtitle });
 }
 
-export function registerIpcHandlers({ settingsStore, digestCache, getBrowserView }) {
+export function registerIpcHandlers({ settingsStore, digestCache, notesStore, getBrowserView }) {
   ipcMain.handle("settings:get", () => settingsStore.load());
   ipcMain.handle("settings:set", (_event, input) => settingsStore.save(input || {}));
 
@@ -41,7 +43,12 @@ export function registerIpcHandlers({ settingsStore, digestCache, getBrowserView
     if (mode !== "asr" && mode !== "subtitle") {
       const cached = digestCache.load(cacheKey);
       if (cached?.transcript?.success) {
-        return { success: true, fromCache: true, transcript: cached.transcript };
+        return {
+          success: true,
+          fromCache: true,
+          transcript: cached.transcript,
+          translations: cached.translations || {},
+        };
       }
     }
     try {
@@ -59,6 +66,9 @@ export function registerIpcHandlers({ settingsStore, digestCache, getBrowserView
           ? existing.details
           : await getVideoDetails(videoId).catch(() => null);
         digestCache.save(cacheKey, { ...existing, transcript, details });
+        // Same response shape as the cache path: the transcript object lives
+        // under `transcript` in both cases.
+        return { success: true, transcript, translations: existing.translations || {} };
       }
       return transcript;
     } catch (error) {
@@ -124,6 +134,37 @@ export function registerIpcHandlers({ settingsStore, digestCache, getBrowserView
   ipcMain.handle("shell:reveal", (_event, filePath) => {
     shell.showItemInFolder(filePath);
     return { success: true };
+  });
+
+  // Persist per-segment Chinese translations alongside the digest cache so
+  // revisiting a video does not re-pay for translation.
+  ipcMain.handle("digest:save-translations", (_event, { videoId, page, translations }) => {
+    const cacheKey = `${videoId}@p${Math.max(1, Number(page) || 1)}`;
+    const existing = digestCache.load(cacheKey) || {};
+    digestCache.save(cacheKey, { ...existing, translations: translations || {} });
+    return { success: true };
+  });
+
+  // ---- translation / explain / notes ------------------------------------
+
+  ipcMain.handle("transcript:translate", async (_event, { videoTitle, segments }) => {
+    const settings = settingsStore.load();
+    return translateTranscriptBatch({ settings, videoTitle, segments });
+  });
+
+  ipcMain.handle("explain", async (_event, { videoTitle, selectedText, transcriptContext }) => {
+    const settings = settingsStore.load();
+    return explainSelection({ settings, videoTitle, selectedText, transcriptContext });
+  });
+
+  ipcMain.handle("notes:list", (_event, videoId) => notesStore.list(videoId || null));
+  ipcMain.handle("notes:add", (_event, note) => notesStore.add(note));
+  ipcMain.handle("notes:delete", (_event, id) => notesStore.remove(id));
+
+  // Polish a note's transcript excerpt into a clean sentence (best-effort).
+  ipcMain.handle("notes:polish", (_event, payload) => {
+    const settings = settingsStore.load();
+    return cleanupNoteText({ settings, ...payload });
   });
 
   // ---- browser view navigation (toolbar) --------------------------------

@@ -3,6 +3,7 @@ import { onMounted, onUnmounted, ref } from "vue";
 import SettingsView from "./views/SettingsView.vue";
 import OverviewView from "./views/OverviewView.vue";
 import TranscriptView from "./views/TranscriptView.vue";
+import NotesView from "./views/NotesView.vue";
 import { currentVideo, videoDetails } from "./store.js";
 
 const tabs = [
@@ -89,6 +90,7 @@ const navHome = () => window.desktop.navHome();
         <main class="panel">
           <OverviewView v-if="active === 'overview'" />
           <TranscriptView v-else-if="active === 'transcript'" />
+          <NotesView v-else-if="active === 'notes'" />
           <SettingsView v-else-if="active === 'settings'" />
           <div v-else class="placeholder">
             「{{ tabs.find((t) => t.id === active)?.label }}」将在后续里程碑开放。
