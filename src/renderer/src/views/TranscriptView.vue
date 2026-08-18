@@ -7,6 +7,69 @@ const error = ref("");
 const switching = ref(false);
 const asrConfigured = ref(false);
 
+// --- export ----------------------------------------------------------------
+const exportFormat = ref("md");
+const collectionInfo = ref(null);
+const collectionModal = ref(null); // { collectionTitle, videos, checking }
+
+async function refreshCollectionInfo() {
+  collectionInfo.value = null;
+  if (!currentVideo.value) return;
+  try {
+    const info = await window.desktop.getCollectionInfo(currentVideo.value.bvid);
+    collectionInfo.value = info?.inCollection ? info : null;
+  } catch {}
+}
+
+async function exportSingleNow() {
+  if (!currentVideo.value) return;
+  await window.desktop.exportSingle(currentVideo.value.bvid, currentVideo.value.page, exportFormat.value);
+  error.value = "";
+  showToast("已加入导出队列，见「任务」页");
+}
+
+async function openCollectionExport() {
+  if (!currentVideo.value) return;
+  collectionModal.value = { collectionTitle: "", videos: [], checking: true };
+  const result = await window.desktop.exportCollectionPreview(currentVideo.value.bvid);
+  collectionModal.value.checking = false;
+  if (!result.success) {
+    collectionModal.value = { ...collectionModal.value, error: result.error };
+    return;
+  }
+  collectionModal.value.collectionTitle = result.collectionTitle;
+  collectionModal.value.videos = result.videos.map((video) => ({
+    ...video,
+    selected: video.hasSubtitle,
+    useAsr: false,
+  }));
+}
+
+async function confirmCollectionExport() {
+  const modal = collectionModal.value;
+  const items = modal.videos
+    .filter((video) => video.selected)
+    .map((video) => ({
+      bvid: video.bvid,
+      title: video.title,
+      videoTitle: video.title,
+      useAsr: !video.hasSubtitle,
+      format: exportFormat.value,
+    }));
+  if (!items.length) return;
+  await window.desktop.exportCollectionConfirm(modal.collectionTitle, exportFormat.value, items);
+  collectionModal.value = null;
+  showToast(`已加入导出队列（${items.length} 个视频），见「任务」页`);
+}
+
+let toastTimer = null;
+const toast = ref("");
+function showToast(text) {
+  toast.value = text;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (toast.value = ""), 2600);
+}
+
 // --- translation modes -----------------------------------------------------
 const mode = ref("original"); // original | zh | bilingual
 const translations = ref({}); // segmentId -> Chinese text
@@ -126,6 +189,7 @@ watch(
         (settings.asrProvider === "doubao" && !!settings.asrApiKeys.doubao) ||
         !!settings.asrApiKeys.bailian;
     } catch {}
+    refreshCollectionInfo();
     await load("auto");
   },
   { immediate: true },
@@ -223,11 +287,20 @@ function seek(seconds) {
       >{{ switching ? "切换中…" : "改用B站字幕" }}</button>
     </div>
 
-    <div v-if="!originalIsChinese" class="mode-row">
+    <div class="mode-row">
       <button class="mode-btn" :class="{ active: mode === 'original' }" @click="switchMode('original')">原文</button>
       <button class="mode-btn" :class="{ active: mode === 'zh' }" @click="switchMode('zh')">中文</button>
       <button class="mode-btn" :class="{ active: mode === 'bilingual' }" @click="switchMode('bilingual')">双语</button>
       <span v-if="translating || translateProgress" class="translating-hint">{{ translateProgress || "准备翻译…" }}</span>
+    </div>
+
+    <div class="export-row">
+      <select v-model="exportFormat" class="export-format-select">
+        <option value="md">Markdown</option>
+        <option value="html">HTML 网页</option>
+      </select>
+      <button class="btn ghost small" @click="exportSingleNow">导出本视频</button>
+      <button v-if="collectionInfo" class="btn small" @click="openCollectionExport">导出整个合集（{{ collectionInfo.videoCount }} 个）</button>
     </div>
 
     <!-- original mode: per-line, clickable timestamps -->
@@ -267,6 +340,41 @@ function seek(seconds) {
       <div v-else-if="explainState.error" class="error-note">{{ explainState.error }}</div>
       <div v-else class="explain-body">{{ explainState.text }}</div>
       <button class="btn ghost" @click="explainState.visible = false">关闭</button>
+    </div>
+  </div>
+
+  <div v-if="toast" class="note-toast">{{ toast }}</div>
+
+  <div v-if="collectionModal" class="explain-overlay" @click.self="collectionModal = null">
+    <div class="explain-dialog" style="max-width: 440px">
+      <div class="explain-title">导出合集</div>
+      <div v-if="collectionModal.checking" class="placeholder">正在检查合集字幕状态…</div>
+      <template v-else-if="collectionModal.error">
+        <div class="error-note">{{ collectionModal.error }}</div>
+      </template>
+      <template v-else>
+        <div class="collection-export-status">
+          《{{ collectionModal.collectionTitle }}》共 {{ collectionModal.videos.length }} 个视频：
+          {{ collectionModal.videos.filter(v => v.hasSubtitle).length }} 个有 B 站字幕，
+          {{ collectionModal.videos.filter(v => !v.hasSubtitle).length }} 个无字幕。
+          勾选无字幕的视频会使用语音识别（按量计费、耗时较长）。
+        </div>
+        <div class="collection-export-list">
+          <label v-for="video in collectionModal.videos" :key="video.bvid" class="collection-export-row">
+            <input type="checkbox" v-model="video.selected" />
+            <span class="collection-export-row-title">{{ video.title }}</span>
+            <span class="collection-export-row-status" :class="video.hasSubtitle ? 'ok' : 'warn'">
+              {{ video.hasSubtitle ? "B站字幕" : "需ASR" }}
+            </span>
+          </label>
+        </div>
+        <div style="display: flex; gap: 8px; justify-content: flex-end">
+          <button class="btn ghost" @click="collectionModal = null">取消</button>
+          <button class="btn" :disabled="!collectionModal.videos.some(v => v.selected)" @click="confirmCollectionExport">
+            开始导出（{{ collectionModal.videos.filter(v => v.selected).length }} 个）
+          </button>
+        </div>
+      </template>
     </div>
   </div>
 </template>

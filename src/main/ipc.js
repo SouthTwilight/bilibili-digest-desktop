@@ -1,9 +1,10 @@
 import { ipcMain, dialog, shell, BrowserWindow } from "electron";
 import { fetchTranscript } from "./core/transcript-service.js";
-import { getVideoDetails, getCollectionInfo } from "./core/bilibili.js";
+import { getVideoDetails, getCollectionInfo, collectionVideosFromView, fetchBilibiliView, bilibiliVideoHasSubtitle } from "./core/bilibili.js";
 import { analyzeTranscript } from "./core/ai.js";
 import { translateTranscriptBatch } from "./core/translation.js";
 import { explainSelection, cleanupNoteText } from "./core/explain.js";
+import { scanLibrary, readLibraryFile } from "./core/library.js";
 
 function pushProgress(payload) {
   BrowserWindow.getAllWindows()[0]?.webContents.send("digest:progress", payload);
@@ -13,7 +14,7 @@ function onProgress(phase) {
   return (title, subtitle) => pushProgress({ phase, title, subtitle });
 }
 
-export function registerIpcHandlers({ settingsStore, digestCache, notesStore, getBrowserView }) {
+export function registerIpcHandlers({ settingsStore, digestCache, notesStore, exportQueue, getBrowserView }) {
   ipcMain.handle("settings:get", () => settingsStore.load());
   ipcMain.handle("settings:set", (_event, input) => settingsStore.save(input || {}));
 
@@ -238,6 +239,66 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ge
   ipcMain.handle("notes:polish", (_event, payload) => {
     const settings = settingsStore.load();
     return cleanupNoteText({ settings, ...payload });
+  });
+
+  // ---- export queue / library ---------------------------------------------
+
+  ipcMain.handle("export:single", (_event, { bvid, page, format }) => {
+    return exportQueue.enqueue({
+      type: "single",
+      format: format === "html" ? "html" : "md",
+      items: [{ bvid, page: page || 1 }],
+    });
+  });
+
+  // Collection export preview: list every video with its subtitle status so
+  // the user can opt specific videos into ASR before confirming.
+  ipcMain.handle("export:collection-preview", async (_event, videoId) => {
+    try {
+      const collection = collectionVideosFromView(await fetchBilibiliView(videoId));
+      if (!collection) return { success: false, error: "当前视频不在合集中。" };
+      const videos = [];
+      for (let index = 0; index < collection.videos.length; index += 1) {
+        const entry = collection.videos[index];
+        let hasSubtitle = false;
+        try {
+          hasSubtitle = await bilibiliVideoHasSubtitle(entry.bvid);
+        } catch {
+          hasSubtitle = false;
+        }
+        videos.push({ ...entry, hasSubtitle });
+        pushProgress({ phase: "collection-preview", title: `正在检查合集字幕（${index + 1}/${collection.videos.length}）`, subtitle: entry.title });
+        await new Promise((resolve) => setTimeout(resolve, 120));
+      }
+      return {
+        success: true,
+        collectionTitle: collection.collectionTitle,
+        videos,
+      };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle("export:collection-confirm", (_event, { collectionTitle, format, items }) => {
+    return exportQueue.enqueue({
+      type: "collection",
+      collectionTitle: collectionTitle || "",
+      format: format === "html" ? "html" : "md",
+      items,
+    });
+  });
+
+  ipcMain.handle("export:tasks", () => exportQueue.list());
+  ipcMain.handle("export:cancel", (_event, id) => exportQueue.cancel(id));
+
+  ipcMain.handle("library:list", () => scanLibrary(settingsStore.load().saveDir));
+  ipcMain.handle("library:read", (_event, filePath) =>
+    readLibraryFile(settingsStore.load().saveDir, filePath),
+  );
+  ipcMain.handle("library:reveal", (_event, filePath) => {
+    shell.showItemInFolder(filePath);
+    return { success: true };
   });
 
   // ---- browser view navigation (toolbar) --------------------------------

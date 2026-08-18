@@ -1,6 +1,58 @@
-import { bilibiliFetch } from "./http.js";
+import { bilibiliFetch, fetchViaPage } from "./http.js";
+import { createHash } from "node:crypto";
 
 const BILIBILI_REFERER = "https://www.bilibili.com/";
+
+// ---- wbi request signing ---------------------------------------------------
+// player/v2 intermittently soft-throttles unsigned callers by returning an
+// empty subtitle list. Signing works around it (algorithm documented in the
+// bilibili-API-collect project): fetch the key pair from nav, derive a mixin
+// key through the fixed permutation table, then sign the query with MD5.
+
+const WBI_MIXIN_TABLE = [
+  46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49,
+  33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40,
+  61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11,
+  36, 20, 34, 44, 52,
+];
+
+let wbiKeys = null;
+let wbiKeysFetchedAt = 0;
+
+function md5Hex(text) {
+  return createHash("md5").update(text, "utf8").digest("hex");
+}
+
+async function getWbiKeys() {
+  if (wbiKeys && Date.now() - wbiKeysFetchedAt < 3600_000) return wbiKeys;
+  const response = await bilibiliFetch("https://api.bilibili.com/x/web-interface/nav");
+  const payload = await response.json();
+  const img = payload?.data?.wbi_img || {};
+  const extract = (url = "") => (url.split("/").pop() || "").replace(/\.\w+$/, "");
+  wbiKeys = { imgKey: extract(img.img_url), subKey: extract(img.img_sub_url) };
+  wbiKeysFetchedAt = Date.now();
+  return wbiKeys;
+}
+
+async function wbiSignedUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const { imgKey, subKey } = await getWbiKeys();
+    const mixin = WBI_MIXIN_TABLE.map((n) => `${imgKey}${subKey}`[n]).join("").slice(0, 32);
+    const params = new URLSearchParams(parsed.search);
+    params.delete("w_rid");
+    params.set("wts", String(Math.floor(Date.now() / 1000)));
+    const query = Array.from(params.entries())
+      .filter(([, value]) => !/[!'()*]/.test(value))
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+      .join("&");
+    const wRid = md5Hex(query + mixin);
+    return `${parsed.origin}${parsed.pathname}?${query}&w_rid=${wRid}`;
+  } catch {
+    return url; // Unsigned on any failure — same behaviour as before.
+  }
+}
 
 export function canonicalBilibiliUrl(videoId) {
   const normalized = String(videoId || "").trim();
@@ -92,14 +144,29 @@ export async function getCollectionInfo(videoId) {
 // ---- Bilibili subtitle track ---------------------------------------------
 
 async function fetchSubtitleTrackList(videoId, cid) {
-  const response = await bilibiliFetch(
-    `https://api.bilibili.com/x/player/v2?bvid=${encodeURIComponent(videoId)}&cid=${cid}`,
-  );
+  const rawUrl = `https://api.bilibili.com/x/player/v2?bvid=${encodeURIComponent(videoId)}&cid=${cid}`;
+  const url = await wbiSignedUrl(rawUrl);
+  const response = await bilibiliFetch(url);
   const payload = await response.json();
+  let subtitles = payload?.data?.subtitle?.subtitles || [];
+  if (payload?.code === 0 && subtitles.length) return subtitles;
+
+  // Belt and braces: retry unsigned inside the page context (fully cookied)
+  // before giving up.
+  try {
+    const pagePayload = await fetchViaPage(rawUrl);
+    if (pagePayload?.code === 0) {
+      subtitles = pagePayload?.data?.subtitle?.subtitles || [];
+      if (subtitles.length) return subtitles;
+    }
+  } catch {
+    // Page not ready or not on bilibili — fall through to the plain result.
+  }
+
   if (!payload || payload.code !== 0) {
     throw new Error(payload?.message || "无法读取 B 站字幕列表。");
   }
-  return payload.data?.subtitle?.subtitles || [];
+  return subtitles;
 }
 
 export async function bilibiliVideoHasSubtitle(videoId) {

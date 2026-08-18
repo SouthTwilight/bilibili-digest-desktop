@@ -29,6 +29,21 @@ contextBridge.exposeInMainWorld("desktop", {
   saveTranslations: (videoId, page, translations, source) =>
     ipcRenderer.invoke("digest:save-translations", { videoId, page, translations, source }),
 
+  exportSingle: (bvid, page, format) =>
+    ipcRenderer.invoke("export:single", { bvid, page, format }),
+  exportCollectionPreview: (videoId) =>
+    ipcRenderer.invoke("export:collection-preview", videoId),
+  exportCollectionConfirm: (collectionTitle, format, items) =>
+    ipcRenderer.invoke("export:collection-confirm", { collectionTitle, format, items }),
+  exportTasks: () => ipcRenderer.invoke("export:tasks"),
+  exportCancel: (id) => ipcRenderer.invoke("export:cancel", id),
+  libraryList: () => ipcRenderer.invoke("library:list"),
+  libraryRead: (filePath) => ipcRenderer.invoke("library:read", filePath),
+  libraryReveal: (filePath) => ipcRenderer.invoke("library:reveal", filePath),
+
+  onExportTaskUpdate: (callback) =>
+    ipcRenderer.on("export:task-update", (_event, task) => callback(task)),
+
   onLayout: (callback) =>
     ipcRenderer.on("layout:update", (_event, layout) => callback(layout)),
   onVideoChanged: (callback) =>

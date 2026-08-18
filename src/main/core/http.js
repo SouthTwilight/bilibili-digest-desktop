@@ -3,8 +3,23 @@
 // the pure modules without it.
 let bilibiliSession = null;
 
+// Optional fallback: run a fetch INSIDE the embedded Bilibili page. B站's
+// player/v2 intermittently returns an empty subtitle list for unsigned
+// main-process requests; the page's own context signs everything, so core
+// services fall back to this when the direct call comes back empty.
+let pageContextFetch = null;
+
 export function initBilibiliHttp(session) {
   bilibiliSession = session;
+}
+
+export function initPageContextFetch(fetchInPage) {
+  pageContextFetch = fetchInPage;
+}
+
+export function fetchViaPage(url) {
+  if (!pageContextFetch) return Promise.reject(new Error("页面上下文不可用"));
+  return pageContextFetch(url);
 }
 
 // SameSite=Lax session cookies (SESSDATA, buvid3, …) are withheld from
@@ -21,23 +36,14 @@ export async function bilibiliFetch(url, options = {}) {
     throw new Error("Bilibili session is not initialized yet.");
   }
   const cookie = await sessionCookieHeader(url);
-  // A stalled request would hang the whole transcript pipeline forever, so
-  // bound every Bilibili call.
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30_000);
-  try {
-    return await net.fetch(url, {
-      session: bilibiliSession,
-      useSessionCookies: true,
-      headers: {
-        Referer: "https://www.bilibili.com/",
-        ...(cookie ? { Cookie: cookie } : {}),
-        ...(options.headers || {}),
-      },
-      ...options,
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timer);
-  }
+  return net.fetch(url, {
+    session: bilibiliSession,
+    useSessionCookies: true,
+    headers: {
+      Referer: 'https://www.bilibili.com/',
+      ...(cookie ? { Cookie: cookie } : {}),
+      ...(options.headers || {}),
+    },
+    ...options,
+  });
 }

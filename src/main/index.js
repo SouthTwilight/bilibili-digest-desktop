@@ -4,7 +4,8 @@ import { registerIpcHandlers } from "./ipc.js";
 import { createSettingsStore } from "./core/settings-store.js";
 import { createDigestCache } from "./core/digest-cache.js";
 import { createNotesStore } from "./core/notes.js";
-import { initBilibiliHttp } from "./core/http.js";
+import { createExportQueue } from "./core/export-queue.js";
+import { initBilibiliHttp, initPageContextFetch } from "./core/http.js";
 import { parseVideoPageUrl } from "./core/bilibili.js";
 
 // Sidebar hosts the Vue app (the window's own page); the browser view fills
@@ -144,6 +145,13 @@ function createWindow() {
 app.whenReady().then(() => {
   const bilibiliSession = session.fromPartition("persist:bilibili");
   initBilibiliHttp(bilibiliSession);
+  // Fallback fetch executed inside the Bilibili page (signed + cookied by
+  // the page itself); used when direct main-process calls get throttled.
+  initPageContextFetch((url) =>
+    browserView?.webContents.executeJavaScript(
+      `fetch(${JSON.stringify(url)}, { credentials: "include" }).then((r) => r.json())`,
+    ),
+  );
 
   const settingsStore = createSettingsStore(join(app.getPath("userData"), "settings.json"), {
     saveDir: join(app.getPath("documents"), "BilibiliDigest"),
@@ -153,7 +161,13 @@ app.whenReady().then(() => {
     saveDirResolver: () => settingsStore.load().saveDir,
     legacyPath: join(app.getPath("userData"), "notes.json"),
   });
-  registerIpcHandlers({ settingsStore, digestCache, notesStore, getBrowserView: () => browserView });
+  const exportQueue = createExportQueue({
+    settingsStore,
+    digestCache,
+    onTaskUpdate: (task) =>
+      mainWindow?.webContents.send("export:task-update", task),
+  });
+  registerIpcHandlers({ settingsStore, digestCache, notesStore, exportQueue, getBrowserView: () => browserView });
 
   createWindow();
 
