@@ -4,7 +4,8 @@ import SettingsView from "./views/SettingsView.vue";
 import OverviewView from "./views/OverviewView.vue";
 import TranscriptView from "./views/TranscriptView.vue";
 import NotesView from "./views/NotesView.vue";
-import { currentVideo, videoDetails } from "./store.js";
+import { currentVideo, videoDetails, transcript } from "./store.js";
+import { takeNoteAt } from "./notes-service.js";
 
 const tabs = [
   { id: "overview", label: "摘要" },
@@ -17,6 +18,7 @@ const tabs = [
 const active = ref("settings");
 
 const nav = ref({ url: "", canGoBack: false, canGoForward: false });
+const noteToast = ref("");
 
 const off = [];
 
@@ -28,6 +30,7 @@ onMounted(() => {
     window.desktop.onVideoChanged(async (video) => {
       currentVideo.value = video;
       videoDetails.value = null;
+      transcript.value = null;
       if (video) {
         videoDetails.value = await window.desktop.getVideoDetails(video.bvid);
         active.value = "transcript";
@@ -35,6 +38,19 @@ onMounted(() => {
     }),
   );
   off.push(window.desktop.onNavState((state) => (nav.value = state)));
+  // The note shortcut must work regardless of which sidebar tab is visible,
+  // so it is handled globally here rather than inside the notes view.
+  off.push(
+    window.desktop.onNoteShortcut(async (payload) => {
+      const result = await takeNoteAt(payload.seconds);
+      if (result.ok) {
+        noteToast.value = `📝 笔记已保存（${Math.floor(result.timestamp / 60)}:${String(result.timestamp % 60).padStart(2, "0")}）`;
+      } else {
+        noteToast.value = `⚠️ ${result.reason}`;
+      }
+      setTimeout(() => (noteToast.value = ""), 2200);
+    }),
+  );
 });
 
 onUnmounted(() => off.forEach((fn) => fn()));
@@ -75,7 +91,6 @@ const navHome = () => window.desktop.navHome();
           <div class="video-title">{{ videoDetails.title || videoDetails.canonicalUrl }}</div>
           <div class="video-channel">UP主：{{ videoDetails.channelName || "未知" }}</div>
         </div>
-
         <nav class="tabs">
           <button
             v-for="tab in tabs"
@@ -98,5 +113,7 @@ const navHome = () => window.desktop.navHome();
         </main>
       </div>
     </div>
+
+    <div v-if="noteToast" class="note-toast">{{ noteToast }}</div>
   </div>
 </template>

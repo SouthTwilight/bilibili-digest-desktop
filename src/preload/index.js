@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld("desktop", {
     ipcRenderer.invoke("transcript:get", { videoId, page, mode }),
   analyzeDigest: (videoId, page) => ipcRenderer.invoke("digest:analyze", { videoId, page }),
   seekVideo: (seconds) => ipcRenderer.invoke("video:seek", seconds),
+  getCurrentTime: () => ipcRenderer.invoke("video:current-time"),
   revealInFolder: (filePath) => ipcRenderer.invoke("shell:reveal", filePath),
   navGo: (direction) => ipcRenderer.invoke("nav:go", direction),
   navReload: () => ipcRenderer.invoke("nav:reload"),

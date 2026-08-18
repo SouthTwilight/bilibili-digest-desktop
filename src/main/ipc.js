@@ -182,6 +182,20 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ge
     return { success: true };
   });
 
+  // Read the browser view player's current time (for manual note-taking).
+  ipcMain.handle("video:current-time", async () => {
+    const view = getBrowserView();
+    if (!view) return { success: false, seconds: null };
+    try {
+      const seconds = await view.webContents.executeJavaScript(
+        `(() => { const v = document.querySelector('video'); return v ? Math.max(0, Math.floor(v.currentTime)) : null; })()`,
+      );
+      return { success: seconds != null, seconds };
+    } catch {
+      return { success: false, seconds: null };
+    }
+  });
+
   ipcMain.handle("shell:reveal", (_event, filePath) => {
     shell.showItemInFolder(filePath);
     return { success: true };
