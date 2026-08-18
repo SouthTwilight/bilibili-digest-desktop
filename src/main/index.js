@@ -51,6 +51,7 @@ function createWindow() {
     backgroundColor: "#f6f7f9",
     title: "Bilibili Digest",
     autoHideMenuBar: true,
+    icon: join(__dirname, "../../build/icon-256.png"),
     webPreferences: {
       preload: join(__dirname, "../preload/index.cjs"),
       contextIsolation: true,

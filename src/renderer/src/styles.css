@@ -330,3 +330,13 @@ html {
 .task-item-status { flex: 0 0 auto; width: 16px; }
 .task-item-title { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .collection-export-row-status.info { color: #0a7ca8; }
+
+/* ---- first-run onboarding ---- */
+.onboarding-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(24,25,28,.55); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: 24px; }
+.onboarding-card { width: 100%; max-width: 480px; background: var(--surface); border-radius: 16px; padding: 26px 28px; display: flex; flex-direction: column; gap: 18px; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+.onboarding-title { font-size: 20px; font-weight: 700; color: var(--pink-strong); }
+.onboarding-step { display: flex; flex-direction: column; gap: 8px; }
+.onboarding-step-title { font-weight: 600; font-size: 14px; }
+.onboarding-dir { display: flex; gap: 10px; align-items: center; }
+.onboarding-dir-path { flex: 1; font-size: 12.5px; color: var(--muted); background: var(--surface-soft); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; word-break: break-all; }
+.onboarding-actions { display: flex; justify-content: flex-end; }

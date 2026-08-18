@@ -1,0 +1,17 @@
+appId: com.southtwilight.bilibilidigest
+productName: Bilibili Digest
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - build/icon-256.png
+  - package.json
+win:
+  target: nsis
+  icon: build/icon.png
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  shortcutName: Bilibili Digest

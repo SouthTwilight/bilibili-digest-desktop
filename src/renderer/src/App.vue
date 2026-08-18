@@ -19,10 +19,11 @@ const tabs = [
 const active = ref("settings");
 
 const nav = ref({ url: "", canGoBack: false, canGoForward: false });
+const onboarding = ref({ visible: false, saveDir: "" });
 
 const off = [];
 
-onMounted(() => {
+onMounted(async () => {
   off.push(window.desktop.onLayout(({ sidebarWidth }) => {
     document.documentElement.style.setProperty("--sidebar-width", `${sidebarWidth}px`);
   }));
@@ -38,7 +39,26 @@ onMounted(() => {
     }),
   );
   off.push(window.desktop.onNavState((state) => (nav.value = state)));
+
+  // First-run onboarding: pick a save directory, then log in on the right.
+  const settings = await window.desktop.getSettings();
+  if (!settings.onboarded) {
+    onboarding.value = { visible: true, saveDir: settings.saveDir || "" };
+    window.desktop.setViewVisible(false);
+  }
 });
+
+async function pickOnboardingDir() {
+  const dir = await window.desktop.pickSaveDir();
+  if (dir) onboarding.value.saveDir = dir;
+}
+
+async function finishOnboarding() {
+  const settings = await window.desktop.getSettings();
+  await window.desktop.saveSettings({ ...settings, saveDir: onboarding.value.saveDir, onboarded: true });
+  onboarding.value.visible = false;
+  window.desktop.setViewVisible(true);
+}
 
 onUnmounted(() => off.forEach((fn) => fn()));
 
@@ -100,6 +120,27 @@ const navHome = () => window.desktop.navHome();
             「{{ tabs.find((t) => t.id === active)?.label }}」将在后续里程碑开放。
           </div>
         </main>
+      </div>
+    </div>
+
+    <div v-if="onboarding.visible" class="onboarding-overlay">
+      <div class="onboarding-card">
+        <div class="onboarding-title">👋 欢迎使用 Bilibili Digest</div>
+        <div class="onboarding-step">
+          <div class="onboarding-step-title">① 选择导出文件的默认保存位置</div>
+          <div class="onboarding-dir">
+            <span class="onboarding-dir-path">{{ onboarding.saveDir || "文档\\BilibiliDigest（默认）" }}</span>
+            <button class="btn ghost" @click="pickOnboardingDir">浏览…</button>
+          </div>
+          <p class="help">字幕导出、学习资料和笔记都会按「合集名 → 视频名_BV号」整理到这个目录。</p>
+        </div>
+        <div class="onboarding-step">
+          <div class="onboarding-step-title">② 登录 B 站</div>
+          <p class="help">点击「开始使用」后，在右侧页面扫码或密码登录 B 站——字幕、合集等能力都需要登录态。登录一次即长期保留。</p>
+        </div>
+        <div class="onboarding-actions">
+          <button class="btn" @click="finishOnboarding">开始使用</button>
+        </div>
       </div>
     </div>
   </div>

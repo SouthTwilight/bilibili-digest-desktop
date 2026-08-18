@@ -83,6 +83,7 @@ export function normalize(input = {}, defaults = {}) {
     saveDir: trimKey(input.saveDir) || defaults.saveDir || "",
     // Doubao enforces a concurrency quota; 1 serializes ASR tasks by default.
     exportConcurrency: Math.min(8, Math.max(1, Number(input.exportConcurrency) || 4)),
+    onboarded: !!input.onboarded,
     supadataApiKey: "",
   };
 }
