@@ -2,12 +2,15 @@ import { app, BrowserWindow, WebContentsView, shell, session } from "electron";
 import { join } from "node:path";
 import { registerIpcHandlers } from "./ipc.js";
 import { createSettingsStore } from "./core/settings-store.js";
+import { createDigestCache } from "./core/digest-cache.js";
+import { initBilibiliHttp } from "./core/http.js";
+import { parseVideoPageUrl } from "./core/bilibili.js";
 
 // Sidebar hosts the Vue app (the window's own page); the browser view fills
-// the remaining space and is the ONLY place Bilibili pages render.
+// the remaining space and is the ONLY place Bilibili pages render. The Vue
+// page also renders a thin navigation toolbar above the browser view area.
 const SIDEBAR_DEFAULT_WIDTH = 380;
-const SIDEBAR_MIN_WIDTH = 300;
-const SIDEBAR_MAX_WIDTH = 560;
+const TOOLBAR_HEIGHT = 44;
 
 let mainWindow = null;
 let browserView = null;
@@ -30,9 +33,9 @@ function layoutBrowserView() {
   const { width, height } = mainWindow.getContentBounds();
   browserView.setBounds({
     x: sidebarWidth,
-    y: 0,
+    y: TOOLBAR_HEIGHT,
     width: Math.max(0, width - sidebarWidth),
-    height,
+    height: Math.max(0, height - TOOLBAR_HEIGHT),
   });
 }
 
@@ -83,8 +86,13 @@ function createWindow() {
   layoutBrowserView();
 
   const contents = browserView.webContents;
+  // Bilibili card links use target="_blank"; opening a native child window
+  // would escape the app shell, so deny popups and navigate in place.
   contents.setWindowOpenHandler(({ url }) => {
-    if (isAllowedUrl(url)) return { action: "allow", overrideBrowserWindowOptions: {} };
+    if (isAllowedUrl(url)) {
+      contents.loadURL(url).catch(() => {});
+      return { action: "deny" };
+    }
     shell.openExternal(url);
     return { action: "deny" };
   });
@@ -94,6 +102,32 @@ function createWindow() {
       shell.openExternal(url);
     }
   });
+
+  // Keep the toolbar buttons and URL display in sync with the view.
+  const pushNavState = () => {
+    const history = contents.navigationHistory ?? contents;
+    mainWindow?.webContents.send("nav:state", {
+      url: contents.getURL(),
+      canGoBack: history.canGoBack?.() ?? false,
+      canGoForward: history.canGoForward?.() ?? false,
+    });
+  };
+  contents.on("did-navigate", pushNavState);
+  contents.on("did-navigate-in-page", pushNavState);
+  contents.on("did-finish-load", pushNavState);
+
+  // Watch for video-page navigation (SPA URL changes included) and tell the
+  // sidebar which video/part is currently shown.
+  const notifyVideoChange = () => {
+    const parsed = parseVideoPageUrl(contents.getURL());
+    mainWindow?.webContents.send(
+      "video:changed",
+      parsed ? { bvid: parsed.bvid, page: parsed.page } : null,
+    );
+  };
+  contents.on("did-navigate", notifyVideoChange);
+  contents.on("did-navigate-in-page", notifyVideoChange);
+
   contents.loadURL("https://www.bilibili.com/");
 
   mainWindow.on("closed", () => {
@@ -103,10 +137,14 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  const bilibiliSession = session.fromPartition("persist:bilibili");
+  initBilibiliHttp(bilibiliSession);
+
   const settingsStore = createSettingsStore(join(app.getPath("userData"), "settings.json"), {
     saveDir: join(app.getPath("documents"), "BilibiliDigest"),
   });
-  registerIpcHandlers({ settingsStore, getBrowserView: () => browserView });
+  const digestCache = createDigestCache(join(app.getPath("userData"), "digest-cache"));
+  registerIpcHandlers({ settingsStore, digestCache, getBrowserView: () => browserView });
 
   createWindow();
 

@@ -29,10 +29,18 @@ async function pickSaveDir() {
 
 async function save() {
   status.value = "保存中…";
-  const saved = await window.desktop.saveSettings({ ...settings });
-  Object.assign(settings, saved);
-  status.value = "已保存 ✓";
-  setTimeout(() => (status.value = ""), 2000);
+  try {
+    // Vue reactive proxies cannot cross the IPC boundary; deep-clone to a
+    // plain object first or the call throws DataCloneError and this promise
+    // never settles.
+    const plain = JSON.parse(JSON.stringify(settings));
+    const saved = await window.desktop.saveSettings(plain);
+    Object.assign(settings, saved);
+    status.value = "已保存 ✓";
+  } catch (error) {
+    status.value = `保存失败：${error.message || error}`;
+  }
+  setTimeout(() => (status.value = ""), 2500);
 }
 </script>
 
