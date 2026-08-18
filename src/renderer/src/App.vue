@@ -145,7 +145,11 @@ const navHome = () => window.desktop.navHome();
           </div>
         </main>
       </div>
-      <div class="sidebar-resizer" title="拖动调整侧边栏宽度" @mousedown="startResize"></div>
+      <div
+        class="sidebar-resizer"
+        title="拖动调整侧边栏宽度"
+        @mousedown="startResize"
+      ></div>
     </div>
 
     <div v-if="onboarding.visible" class="onboarding-overlay">

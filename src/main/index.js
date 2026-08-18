@@ -12,10 +12,12 @@ import { isAllowedUrl } from "./core/url-policy.js";
 // Sidebar hosts the Vue app (the window's own page); the browser view fills
 // the remaining space and is the ONLY place Bilibili pages render. The Vue
 // page also renders a thin navigation toolbar above the browser view area.
-// The sidebar is drag-resizable; the browser view area shrinks accordingly.
+// The sidebar is drag-resizable via an 8px handle; the browser view MUST
+// leave that strip uncovered or its native layer would swallow the mouse.
 const SIDEBAR_DEFAULT_WIDTH = 480;
 const SIDEBAR_MIN_WIDTH = 400;
 const SIDEBAR_MAX_WIDTH = 820;
+const SIDEBAR_RESIZER_WIDTH = 8;
 const TOOLBAR_HEIGHT = 44;
 
 let mainWindow = null;
@@ -26,9 +28,9 @@ let pushLayout = () => {};
 function layoutBrowserView() {
   if (!mainWindow || !browserView) return;
   const { width, height } = mainWindow.getContentBounds();
-  const viewWidth = Math.max(0, width - sidebarWidth);
+  const viewWidth = Math.max(0, width - sidebarWidth - SIDEBAR_RESIZER_WIDTH);
   browserView.setBounds({
-    x: sidebarWidth,
+    x: sidebarWidth + SIDEBAR_RESIZER_WIDTH,
     y: TOOLBAR_HEIGHT,
     width: viewWidth,
     height: Math.max(0, height - TOOLBAR_HEIGHT),
@@ -43,7 +45,7 @@ function layoutBrowserView() {
 function applyBrowserZoom() {
   if (!mainWindow || !browserView) return;
   const { width } = mainWindow.getContentBounds();
-  const viewWidth = Math.max(0, width - sidebarWidth);
+  const viewWidth = Math.max(0, width - sidebarWidth - SIDEBAR_RESIZER_WIDTH);
   if (viewWidth > 0) {
     const zoom = Math.min(1, Math.max(0.55, viewWidth / 1140));
     try {

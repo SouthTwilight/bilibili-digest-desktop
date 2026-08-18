@@ -343,18 +343,28 @@ html {
 
 /* ---- sidebar drag resizer ---- */
 .sidebar-resizer {
-  flex: 0 0 6px;
-  width: 6px;
+  flex: 0 0 8px;
+  width: 8px;
   cursor: col-resize;
   background: transparent;
   position: relative;
+  border-left: 1px solid var(--line);
 }
 .sidebar-resizer::after {
-  content: "";
+  content: "⋮";
   position: absolute;
-  inset: 0 2px;
-  border-radius: 3px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 12px;
+  color: #c9ccd0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.sidebar-resizer:hover, .sidebar-resizer:active {
+  background: rgba(251, 114, 153, 0.08);
 }
 .sidebar-resizer:hover::after, .sidebar-resizer:active::after {
-  background: var(--pink);
+  opacity: 1;
+  color: var(--pink-strong);
 }
