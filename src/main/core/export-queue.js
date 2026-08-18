@@ -43,6 +43,8 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate }) 
       total: task.items.length,
       results: task.items.map((item) => ({
         title: item.title,
+        bvid: item.bvid,
+        page: item.page || 1,
         status: item.itemStatus,
         file: item.file || null,
         error: item.error || null,
@@ -201,6 +203,35 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate }) 
       return Array.from(tasks.values())
         .map(serializeTask)
         .sort((a, b) => b.createdAt - a.createdAt);
+    },
+
+    // Re-enqueue failed items with ASR inside the SAME task, so the original
+    // task record is kept and the retried work shows up in place.
+    retryAsr(taskId, itemIndexes = null) {
+      const task = tasks.get(taskId);
+      if (!task) return { success: false, error: "任务不存在" };
+      if (task.status === "canceled") return { success: false, error: "已取消的任务不能重试" };
+      const indexes = new Set(Array.isArray(itemIndexes) ? itemIndexes.map(Number) : []);
+      const targets = task.items
+        .map((item, index) => ({ item, index }))
+        .filter(
+          ({ item, index }) =>
+            item.itemStatus === "failed" && (indexes.size === 0 || indexes.has(index)),
+        );
+      if (!targets.length) return { success: false, error: "没有可重试的失败项" };
+
+      task.status = "running";
+      for (const { item } of targets) {
+        item.itemStatus = "pending";
+        item.error = null;
+        item.file = null;
+        item.sourceMode = "asr";
+        item.useAsr = true;
+      }
+      notify(task);
+      for (const { item } of targets) asrLane.push({ task, item });
+      pumpAsrLane();
+      return { success: true, task: serializeTask(task) };
     },
 
     cancel(id) {

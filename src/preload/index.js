@@ -37,6 +37,8 @@ contextBridge.exposeInMainWorld("desktop", {
     ipcRenderer.invoke("export:collection-confirm", { collectionTitle, format, items }),
   exportTasks: () => ipcRenderer.invoke("export:tasks"),
   exportCancel: (id) => ipcRenderer.invoke("export:cancel", id),
+  retryAsr: (taskId, itemIndexes) =>
+    ipcRenderer.invoke("export:retry-asr", { taskId, itemIndexes }),
   libraryList: () => ipcRenderer.invoke("library:list"),
   libraryRead: (filePath) => ipcRenderer.invoke("library:read", filePath),
   libraryReveal: (filePath) => ipcRenderer.invoke("library:reveal", filePath),

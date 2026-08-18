@@ -10,7 +10,7 @@ const asrConfigured = ref(false);
 // --- export ----------------------------------------------------------------
 const exportFormat = ref("md");
 const collectionInfo = ref(null);
-const collectionModal = ref(null); // { collectionTitle, videos, checking }
+const collectionModal = ref(null); // { collectionTitle, videos, error }
 
 async function refreshCollectionInfo() {
   collectionInfo.value = null;
@@ -33,19 +33,34 @@ async function exportSingleNow() {
 
 async function openCollectionExport() {
   if (!currentVideo.value) return;
-  collectionModal.value = { collectionTitle: "", videos: [], checking: true };
+  collectionModal.value = { collectionTitle: "", videos: [], error: "" };
   const result = await window.desktop.exportCollectionPreview(currentVideo.value.bvid);
-  collectionModal.value.checking = false;
   if (!result.success) {
-    collectionModal.value = { ...collectionModal.value, error: result.error };
+    collectionModal.value.error = result.error;
     return;
   }
   collectionModal.value.collectionTitle = result.collectionTitle;
   collectionModal.value.videos = result.videos.map((video) => ({
     ...video,
-    selected: video.current || video.cachedAsr || video.hasSubtitle,
-    useAsr: false,
+    selected: true,
+    source: "subtitle",
   }));
+}
+
+const allSelected = computed(() => {
+  const videos = collectionModal.value?.videos;
+  return !!videos?.length && videos.every((video) => video.selected);
+});
+
+function toggleSelectAll() {
+  const next = !allSelected.value;
+  collectionModal.value.videos.forEach((video) => (video.selected = next));
+}
+
+function batchSetSource(source) {
+  collectionModal.value.videos.forEach((video) => {
+    if (video.selected) video.source = source;
+  });
 }
 
 async function confirmCollectionExport() {
@@ -56,9 +71,9 @@ async function confirmCollectionExport() {
       bvid: video.bvid,
       title: video.title,
       videoTitle: video.title,
-      // Only genuinely-untranscribed videos trigger fresh ASR; everything
-      // else exports from cache at zero cost.
-      useAsr: video.needsAsr,
+      page: video.page || 1,
+      sourceMode: video.source || "subtitle",
+      useAsr: (video.source || "subtitle") === "asr",
       format: exportFormat.value,
     }));
   if (!items.length) return;
@@ -359,29 +374,32 @@ function seek(seconds) {
   <div v-if="toast" class="note-toast">{{ toast }}</div>
 
   <div v-if="collectionModal" class="explain-overlay" @click.self="collectionModal = null">
-    <div class="explain-dialog" style="max-width: 440px">
+    <div class="explain-dialog" style="max-width: 480px">
       <div class="explain-title">导出合集</div>
-      <div v-if="collectionModal.checking" class="placeholder">正在检查合集字幕状态…</div>
-      <template v-else-if="collectionModal.error">
+      <template v-if="collectionModal.error">
         <div class="error-note">{{ collectionModal.error }}</div>
       </template>
       <template v-else>
         <div class="collection-export-status">
-          《{{ collectionModal.collectionTitle }}》共 {{ collectionModal.videos.length }} 个视频：
-          {{ collectionModal.videos.filter(v => v.hasSubtitle).length }} 个有 B 站字幕，
-          {{ collectionModal.videos.filter(v => !v.hasSubtitle).length }} 个无字幕。
-          勾选无字幕的视频会使用语音识别（按量计费、耗时较长）。
+          《{{ collectionModal.collectionTitle }}》共 {{ collectionModal.videos.length }} 个视频。
+          默认使用 B站字幕；也可逐个或批量改为 ASR。B站字幕获取失败的任务可在任务页改用 ASR 重试。
+        </div>
+        <div class="collection-export-toolbar">
+          <label class="collection-export-select-all">
+            <input type="checkbox" :checked="allSelected" @change="toggleSelectAll" />
+            全选
+          </label>
+          <button class="btn ghost small" :disabled="!collectionModal.videos.some(v => v.selected)" @click="batchSetSource('subtitle')">批量设为 B站字幕</button>
+          <button class="btn ghost small" :disabled="!collectionModal.videos.some(v => v.selected)" @click="batchSetSource('asr')">批量设为 ASR</button>
         </div>
         <div class="collection-export-list">
           <label v-for="video in collectionModal.videos" :key="video.bvid" class="collection-export-row">
             <input type="checkbox" v-model="video.selected" />
             <span class="collection-export-row-title">{{ video.title }}</span>
-            <span class="collection-export-row-status" :class="video.current === 'bilibili-subtitle' || (video.hasSubtitle && !video.current) ? 'ok' : video.current || video.cachedAsr ? 'info' : 'warn'">
-              {{ video.current === "bilibili-subtitle" ? "当前：B站字幕" :
-                 video.current ? "当前：ASR" :
-                 video.cachedAsr ? "ASR（缓存）" :
-                 video.hasSubtitle ? "B站字幕" : "需ASR" }}
-            </span>
+            <select v-model="video.source" :disabled="!video.selected" class="collection-export-source-select">
+              <option value="subtitle">B站字幕</option>
+              <option value="asr">ASR</option>
+            </select>
           </label>
         </div>
         <div style="display: flex; gap: 8px; justify-content: flex-end">

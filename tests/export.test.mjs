@@ -89,3 +89,35 @@ test("export queue serializes ASR items and isolates failures", async () => {
   assert.equal(list[0].status, "done");
   assert.ok(list[0].results.every((r2) => r2.status === "failed"));
 });
+
+test("retryAsr re-enqueues failed items as ASR inside the same task", async () => {
+  const queue = createExportQueue({
+    settingsStore: {
+      load: () => ({ saveDir: "", exportConcurrency: 2, aiApiKeys: {}, asrProvider: "bailian" }),
+    },
+    digestCache: { load: () => null },
+    onTaskUpdate: () => {},
+  });
+  const task = queue.enqueue({
+    type: "collection",
+    collectionTitle: "测试",
+    items: [{ bvid: "BV1111111111", title: "A", useAsr: true }],
+  });
+  await new Promise((r) => setTimeout(r, 150));
+  const failed = queue.list();
+  assert.equal(failed[0].status, "done");
+  assert.equal(failed[0].results[0].status, "failed");
+
+  const retry = queue.retryAsr(task.id, [0]);
+  assert.equal(retry.success, true);
+  assert.equal(retry.task.status, "running");
+  // The item may already have been picked up by the ASR lane, so it can be
+  // pending or running at this point — either way it must not be failed.
+  assert.ok(["pending", "running"].includes(retry.task.results[0].status));
+
+  // Let the retried item fail again (still no ASR key) and settle.
+  await new Promise((r) => setTimeout(r, 150));
+  const settled = queue.list();
+  assert.equal(settled[0].status, "done");
+  assert.equal(settled[0].results[0].status, "failed");
+});

@@ -1,6 +1,6 @@
 import { ipcMain, dialog, shell, BrowserWindow } from "electron";
 import { fetchTranscript } from "./core/transcript-service.js";
-import { getVideoDetails, getCollectionInfo, collectionVideosFromView, fetchBilibiliView, bilibiliVideoHasSubtitle } from "./core/bilibili.js";
+import { getVideoDetails, getCollectionInfo, collectionVideosFromView, fetchBilibiliView } from "./core/bilibili.js";
 import { analyzeTranscript } from "./core/ai.js";
 import { translateTranscriptBatch } from "./core/translation.js";
 import { explainSelection, cleanupNoteText } from "./core/explain.js";
@@ -264,40 +264,19 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
     });
   });
 
-  // Collection export preview: list every video with its CURRENT transcript
-  // source (what the sidebar last showed), subtitle availability, and cached
-  // ASR state, so defaults and ASR opt-ins reflect real per-video usage.
+  // Collection export preview: only fetch the collection video list. Per-video
+  // subtitle availability is deliberately NOT probed here — the user picks the
+  // source explicitly (Bilibili subtitle or ASR) and failures are retried with
+  // ASR from the task record.
   ipcMain.handle("export:collection-preview", async (_event, videoId) => {
     try {
       const collection = collectionVideosFromView(await fetchBilibiliView(videoId));
       if (!collection) return { success: false, error: "当前视频不在合集中。" };
-      const videos = [];
-      for (let index = 0; index < collection.videos.length; index += 1) {
-        const entry = collection.videos[index];
-        const cached = digestCache.load(`${entry.bvid}@p1`);
-        const hasCachedAsr = !!cached?.transcripts?.asr?.success;
-        const current = cached?.transcript?.success ? cached.transcript.source : null;
-        let hasSubtitle = current === "bilibili-subtitle";
-        if (!current) {
-          try {
-            hasSubtitle = await bilibiliVideoHasSubtitle(entry.bvid);
-          } catch {
-            hasSubtitle = false;
-          }
-        }
-        videos.push({
-          ...entry,
-          hasSubtitle,
-          current,
-          cachedAsr: hasCachedAsr,
-          // ASR opt-in only matters when neither a current transcript, a
-          // cached ASR slot, nor a Bilibili track can serve the export.
-          needsAsr: !current && !hasCachedAsr && !hasSubtitle,
-        });
-        pushProgress({ phase: "collection-preview", title: `正在检查合集字幕（${index + 1}/${collection.videos.length}）`, subtitle: entry.title });
-        await new Promise((resolve) => setTimeout(resolve, 120));
-      }
-      return { success: true, collectionTitle: collection.collectionTitle, videos };
+      return {
+        success: true,
+        collectionTitle: collection.collectionTitle,
+        videos: collection.videos.map((video) => ({ ...video, page: 1 })),
+      };
     } catch (error) {
       return { success: false, error: error.message };
     }
@@ -311,6 +290,11 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
       items,
     });
   });
+
+  // Retry failed items with ASR inside the original task.
+  ipcMain.handle("export:retry-asr", (_event, { taskId, itemIndexes }) =>
+    exportQueue.retryAsr(taskId, itemIndexes),
+  );
 
   ipcMain.handle("export:tasks", () => exportQueue.list());
   ipcMain.handle("export:cancel", (_event, id) => exportQueue.cancel(id));
