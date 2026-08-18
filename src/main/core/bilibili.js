@@ -115,22 +115,23 @@ export async function bilibiliVideoHasSubtitle(videoId) {
 }
 
 export async function fetchBilibiliSubtitleTranscript(videoId, cid) {
-  const subtitles = await fetchSubtitleTrackList(videoId, cid);
-  const preferred =
-    subtitles.find((item) => /zh|ai-zh/i.test(item.lan || "")) || subtitles[0];
-  if (!preferred?.subtitle_url) {
-    return {
-      success: false,
-      error: "NO_TRANSCRIPT",
-      message: "这个视频没有可用的 B 站字幕。",
-    };
-  }
-  const subtitleUrl = preferred.subtitle_url.startsWith("//")
-    ? `https:${preferred.subtitle_url}`
-    : preferred.subtitle_url;
-  const response = await bilibiliFetch(subtitleUrl);
-  if (!response.ok) throw new Error("B 站字幕文件下载失败。");
-  const data = await response.json();
+  try {
+    const subtitles = await fetchSubtitleTrackList(videoId, cid);
+    const preferred =
+      subtitles.find((item) => /zh|ai-zh/i.test(item.lan || "")) || subtitles[0];
+    if (!preferred?.subtitle_url) {
+      return {
+        success: false,
+        error: "NO_TRANSCRIPT",
+        message: "这个视频没有可用的 B 站字幕。",
+      };
+    }
+    const subtitleUrl = preferred.subtitle_url.startsWith("//")
+      ? `https:${preferred.subtitle_url}`
+      : preferred.subtitle_url;
+    const response = await bilibiliFetch(subtitleUrl);
+    if (!response.ok) throw new Error("B 站字幕文件下载失败。");
+    const data = await response.json();
 
   return normalizeTranscript(
     (data.body || []).map((chunk) => ({
@@ -140,6 +141,9 @@ export async function fetchBilibiliSubtitleTranscript(videoId, cid) {
     })),
     { language: preferred.lan || null, source: "bilibili-subtitle" },
   );
+  } catch (error) {
+    return { success: false, error: error.message, message: `B 站字幕获取失败：${error.message}` };
+  }
 }
 
 // ---- Audio track (for ASR) -----------------------------------------------

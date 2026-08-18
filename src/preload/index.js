@@ -24,8 +24,8 @@ contextBridge.exposeInMainWorld("desktop", {
   addNote: (note) => ipcRenderer.invoke("notes:add", note),
   deleteNote: (id) => ipcRenderer.invoke("notes:delete", id),
   polishNote: (payload) => ipcRenderer.invoke("notes:polish", payload),
-  saveTranslations: (videoId, page, translations) =>
-    ipcRenderer.invoke("digest:save-translations", { videoId, page, translations }),
+  saveTranslations: (videoId, page, translations, source) =>
+    ipcRenderer.invoke("digest:save-translations", { videoId, page, translations, source }),
 
   onLayout: (callback) =>
     ipcRenderer.on("layout:update", (_event, layout) => callback(layout)),

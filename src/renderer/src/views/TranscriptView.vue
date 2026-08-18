@@ -69,6 +69,7 @@ async function ensureTranslated() {
       currentVideo.value.bvid,
       currentVideo.value.page,
       { ...translations.value },
+      isSubtitleSource.value ? "subtitle" : "asr",
     ).catch(() => {});
   } finally {
     translating.value = false;

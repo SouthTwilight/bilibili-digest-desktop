@@ -33,42 +33,93 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ge
     getCollectionInfo(videoId).catch((error) => ({ inCollection: false, error: error.message })),
   );
 
-  // Transcript for the sidebar: cache-first, then subtitle/ASR. `mode`
-  // ("auto" | "asr" | "subtitle") lets the user override the default
-  // subtitle-first order; successful overrides replace the cache entry.
+  // Transcript for the sidebar: cache-first, then subtitle/ASR. Each source
+  // keeps its own slot in the cache so switching back and forth never
+  // re-fetches (and never re-pays for ASR). `mode` ("auto"|"asr"|"subtitle")
+  // picks the source; the last loaded one stays the active transcript used
+  // for analysis.
   ipcMain.handle("transcript:get", async (_event, { videoId, page, mode }) => {
     const page_ = Math.max(1, Number(page) || 1);
     const cacheKey = `${videoId}@p${page_}`;
 
-    if (mode !== "asr" && mode !== "subtitle") {
-      const cached = digestCache.load(cacheKey);
-      if (cached?.transcript?.success) {
-        return {
-          success: true,
-          fromCache: true,
-          transcript: cached.transcript,
-          translations: cached.translations || {},
-        };
-      }
+    const cached = digestCache.load(cacheKey) || {};
+    // Migrate single-transcript entries into per-source slots.
+    const slots = cached.transcripts || {};
+    if (!slots.subtitle && !slots.asr && cached.transcript?.success) {
+      if (cached.transcript.source === "bilibili-subtitle") slots.subtitle = cached.transcript;
+      else slots.asr = cached.transcript;
     }
+    const translationsBySource = cached.translationsBySource || {};
+    const translationsFor = (slot) =>
+      slot === "asr" ? translationsBySource.asr || {} : translationsBySource.subtitle || {};
+
+    const persist = (slotKey, transcript) => {
+      slots[slotKey] = transcript;
+      digestCache.save(cacheKey, {
+        ...cached,
+        transcript, // active transcript (analysis reads this)
+        transcripts: slots,
+        translationsBySource,
+      });
+    };
+
+    const wantAsr = mode === "asr";
+    const wantSubtitle = mode === "subtitle";
+
+    // Cache hits for the explicitly requested source.
+    if (wantAsr && slots.asr?.success) {
+      return { success: true, fromCache: true, transcript: slots.asr, translations: translationsFor("asr") };
+    }
+    if (wantSubtitle && slots.subtitle?.success) {
+      return { success: true, fromCache: true, transcript: slots.subtitle, translations: translationsFor("subtitle") };
+    }
+
     try {
       const settings = settingsStore.load();
+
+      // auto: subtitle slot first. When an ASR slot already exists, probe
+      // subtitles only — a failed probe reuses the paid ASR transcript
+      // instead of re-running recognition.
+      if (!wantAsr) {
+        if (slots.subtitle?.success) {
+          persist("subtitle", slots.subtitle);
+          return { success: true, fromCache: true, transcript: slots.subtitle, translations: translationsFor("subtitle") };
+        }
+        if (slots.asr?.success) {
+          // When a paid ASR transcript already exists, probe subtitles only;
+          // a failed probe reuses the ASR transcript instead of re-running
+          // recognition.
+          const probe = await fetchTranscript({ settings, videoId, page: page_, mode: "subtitle", onProgress: onProgress("transcript") }).catch(() => null);
+          if (probe?.success) {
+            persist("subtitle", probe);
+            return { success: true, transcript: probe, translations: translationsFor("subtitle") };
+          }
+          persist("asr", slots.asr);
+          return { success: true, fromCache: true, transcript: slots.asr, translations: translationsFor("asr") };
+        }
+      }
+
       const transcript = await fetchTranscript({
         settings,
         videoId,
         page: page_,
-        mode: mode || "auto",
+        mode,
         onProgress: onProgress("transcript"),
       });
       if (transcript.success) {
-        const existing = digestCache.load(cacheKey) || {};
-        const details = existing.details?.title
-          ? existing.details
+        const slotKey = transcript.source === "bilibili-subtitle" ? "subtitle" : "asr";
+        const existingDetails = cached.details?.title
+          ? cached.details
           : await getVideoDetails(videoId).catch(() => null);
-        digestCache.save(cacheKey, { ...existing, transcript, details });
-        // Same response shape as the cache path: the transcript object lives
-        // under `transcript` in both cases.
-        return { success: true, transcript, translations: existing.translations || {} };
+        slots[slotKey] = transcript;
+        digestCache.save(cacheKey, {
+          ...cached,
+          transcript,
+          transcripts: slots,
+          translationsBySource,
+          details: existingDetails,
+        });
+        return { success: true, transcript, translations: translationsFor(slotKey) };
       }
       return transcript;
     } catch (error) {
@@ -137,11 +188,16 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ge
   });
 
   // Persist per-segment Chinese translations alongside the digest cache so
-  // revisiting a video does not re-pay for translation.
-  ipcMain.handle("digest:save-translations", (_event, { videoId, page, translations }) => {
+  // revisiting a video does not re-pay for translation. Translations are
+  // namespaced by transcript source because segment ids (s0, s1, …) only
+  // align within one source.
+  ipcMain.handle("digest:save-translations", (_event, { videoId, page, translations, source }) => {
     const cacheKey = `${videoId}@p${Math.max(1, Number(page) || 1)}`;
     const existing = digestCache.load(cacheKey) || {};
-    digestCache.save(cacheKey, { ...existing, translations: translations || {} });
+    const bySource = existing.translationsBySource || {};
+    const slot = source === "asr" ? "asr" : "subtitle";
+    bySource[slot] = translations || {};
+    digestCache.save(cacheKey, { ...existing, translationsBySource: bySource });
     return { success: true };
   });
 
