@@ -31,14 +31,18 @@ export function registerIpcHandlers({ settingsStore, digestCache, getBrowserView
     getCollectionInfo(videoId).catch((error) => ({ inCollection: false, error: error.message })),
   );
 
-  // Transcript for the sidebar: cache-first, then subtitle/ASR.
-  ipcMain.handle("transcript:get", async (_event, { videoId, page }) => {
+  // Transcript for the sidebar: cache-first, then subtitle/ASR. `mode`
+  // ("auto" | "asr" | "subtitle") lets the user override the default
+  // subtitle-first order; successful overrides replace the cache entry.
+  ipcMain.handle("transcript:get", async (_event, { videoId, page, mode }) => {
     const page_ = Math.max(1, Number(page) || 1);
     const cacheKey = `${videoId}@p${page_}`;
 
-    const cached = digestCache.load(cacheKey);
-    if (cached?.transcript?.success) {
-      return { success: true, fromCache: true, transcript: cached.transcript };
+    if (mode !== "asr" && mode !== "subtitle") {
+      const cached = digestCache.load(cacheKey);
+      if (cached?.transcript?.success) {
+        return { success: true, fromCache: true, transcript: cached.transcript };
+      }
     }
     try {
       const settings = settingsStore.load();
@@ -46,11 +50,15 @@ export function registerIpcHandlers({ settingsStore, digestCache, getBrowserView
         settings,
         videoId,
         page: page_,
+        mode: mode || "auto",
         onProgress: onProgress("transcript"),
       });
       if (transcript.success) {
-        const details = await getVideoDetails(videoId).catch(() => null);
-        digestCache.save(cacheKey, { transcript, details });
+        const existing = digestCache.load(cacheKey) || {};
+        const details = existing.details?.title
+          ? existing.details
+          : await getVideoDetails(videoId).catch(() => null);
+        digestCache.save(cacheKey, { ...existing, transcript, details });
       }
       return transcript;
     } catch (error) {

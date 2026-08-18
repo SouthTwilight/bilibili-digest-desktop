@@ -244,3 +244,5 @@ html {
 .ro-row span { color: var(--muted); flex: 0 0 auto; }
 .ro-row b { font-weight: 600; text-align: right; word-break: break-all; }
 .ro-dir { max-width: 210px; }
+
+.btn.small { padding: 5px 12px; font-size: 12px; margin-left: 8px; vertical-align: middle; }

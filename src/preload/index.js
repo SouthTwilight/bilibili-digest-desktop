@@ -8,7 +8,8 @@ contextBridge.exposeInMainWorld("desktop", {
 
   getVideoDetails: (videoId) => ipcRenderer.invoke("video:details", videoId),
   getCollectionInfo: (videoId) => ipcRenderer.invoke("video:collection-info", videoId),
-  getTranscript: (videoId, page) => ipcRenderer.invoke("transcript:get", { videoId, page }),
+  getTranscript: (videoId, page, mode) =>
+    ipcRenderer.invoke("transcript:get", { videoId, page, mode }),
   analyzeDigest: (videoId, page) => ipcRenderer.invoke("digest:analyze", { videoId, page }),
   seekVideo: (seconds) => ipcRenderer.invoke("video:seek", seconds),
   revealInFolder: (filePath) => ipcRenderer.invoke("shell:reveal", filePath),
