@@ -6,34 +6,29 @@ import {
 import { transcribeWithBailian } from "./asr-bailian.js";
 import { transcribeWithDoubao } from "./asr-doubao.js";
 
-// Transcript precedence: free Bilibili subtitle tracks are always preferred
-// when they exist; ASR (Bailian/Doubao) only fills in for videos without a
-// track. `mode` lets the UI override: "asr" skips subtitles entirely (for
-// poor ai-zh tracks), "subtitle" skips ASR, "auto" is the default order.
+// Transcript policy: automatic fetching (auto/subtitle modes) uses FREE
+// Bilibili subtitle tracks ONLY — speech recognition is never triggered
+// implicitly. ASR runs exclusively in the explicit "asr" mode, which the UI
+// only enters when the user clicks "改用语音识别" or checks an ASR box in the
+// collection export preview, so per-video cost is always a manual decision.
 export async function fetchTranscript({ settings, videoId, page = 1, mode = "auto", onProgress }) {
   const view = await fetchBilibiliView(videoId);
   const cid = resolvePageCid(view, page);
 
-  const doubaoReady = settings.asrProvider === "doubao" && settings.asrApiKeys.doubao;
-  const bailianReady = !!settings.asrApiKeys.bailian;
-  const asrReady = doubaoReady || bailianReady;
-
   if (mode !== "asr") {
-    const subtitleResult = await fetchBilibiliSubtitleTranscript(videoId, cid);
-    if (subtitleResult.success || mode === "subtitle") return subtitleResult;
+    return fetchBilibiliSubtitleTranscript(videoId, cid);
   }
+
+  const doubaoReady = settings.asrProvider === "doubao" && settings.asrApiKeys.doubao;
   if (doubaoReady) {
     return transcribeWithDoubao(videoId, cid, settings, onProgress);
   }
-  if (bailianReady) {
+  if (settings.asrApiKeys.bailian) {
     return transcribeWithBailian(videoId, cid, settings.asrApiKeys.bailian, onProgress);
   }
   return {
     success: false,
     error: "NO_ASR",
-    message:
-      mode === "asr"
-        ? "语音识别未配置或 Key 不可用，请在设置中填写百炼/豆包凭证。"
-        : "这个视频没有 B 站字幕，且语音识别未配置。",
+    message: "语音识别未配置：请在设置中填写百炼 API Key 或豆包 Access Token + App ID。",
   };
 }

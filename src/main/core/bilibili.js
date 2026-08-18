@@ -190,7 +190,7 @@ export async function fetchBilibiliSubtitleTranscript(videoId, cid) {
       return {
         success: false,
         error: "NO_TRANSCRIPT",
-        message: "这个视频没有可用的 B 站字幕。",
+        message: "这个视频没有可用的 B 站字幕。如需语音识别生成，请在下方手动开启。",
       };
     }
     const subtitleUrl = preferred.subtitle_url.startsWith("//")
