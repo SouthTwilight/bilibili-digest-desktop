@@ -21,7 +21,8 @@ contextBridge.exposeInMainWorld("desktop", {
   translateBatch: (videoTitle, segments) =>
     ipcRenderer.invoke("transcript:translate", { videoTitle, segments }),
   explain: (payload) => ipcRenderer.invoke("explain", payload),
-  listNotes: (videoId) => ipcRenderer.invoke("notes:list", videoId),
+  listNotes: (scope) => ipcRenderer.invoke("notes:list", scope),
+  listNotesFor: (video) => ipcRenderer.invoke("notes:list-for", video),
   addNote: (note) => ipcRenderer.invoke("notes:add", note),
   deleteNote: (id) => ipcRenderer.invoke("notes:delete", id),
   polishNote: (payload) => ipcRenderer.invoke("notes:polish", payload),

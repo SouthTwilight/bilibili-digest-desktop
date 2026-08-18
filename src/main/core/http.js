@@ -21,14 +21,23 @@ export async function bilibiliFetch(url, options = {}) {
     throw new Error("Bilibili session is not initialized yet.");
   }
   const cookie = await sessionCookieHeader(url);
-  return net.fetch(url, {
-    session: bilibiliSession,
-    useSessionCookies: true,
-    headers: {
-      Referer: "https://www.bilibili.com/",
-      ...(cookie ? { Cookie: cookie } : {}),
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
+  // A stalled request would hang the whole transcript pipeline forever, so
+  // bound every Bilibili call.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+  try {
+    return await net.fetch(url, {
+      session: bilibiliSession,
+      useSessionCookies: true,
+      headers: {
+        Referer: "https://www.bilibili.com/",
+        ...(cookie ? { Cookie: cookie } : {}),
+        ...(options.headers || {}),
+      },
+      ...options,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 }

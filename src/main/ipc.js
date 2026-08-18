@@ -227,8 +227,11 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ge
     return explainSelection({ settings, videoTitle, selectedText, transcriptContext });
   });
 
-  ipcMain.handle("notes:list", (_event, videoId) => notesStore.list(videoId || null));
-  ipcMain.handle("notes:add", (_event, note) => notesStore.add(note));
+  ipcMain.handle("notes:list", (_event, scope) =>
+    scope === "all" ? notesStore.listAll() : [],
+  );
+  ipcMain.handle("notes:list-for", (_event, video) => notesStore.listFor(video || {}));
+  ipcMain.handle("notes:add", (_event, note) => notesStore.add(note || {}));
   ipcMain.handle("notes:delete", (_event, id) => notesStore.remove(id));
 
   // Polish a note's transcript excerpt into a clean sentence (best-effort).

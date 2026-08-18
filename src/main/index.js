@@ -162,7 +162,10 @@ app.whenReady().then(() => {
     saveDir: join(app.getPath("documents"), "BilibiliDigest"),
   });
   const digestCache = createDigestCache(join(app.getPath("userData"), "digest-cache"));
-  const notesStore = createNotesStore(join(app.getPath("userData"), "notes.json"));
+  const notesStore = createNotesStore({
+    saveDirResolver: () => settingsStore.load().saveDir,
+    legacyPath: join(app.getPath("userData"), "notes.json"),
+  });
   registerIpcHandlers({ settingsStore, digestCache, notesStore, getBrowserView: () => browserView });
 
   createWindow();

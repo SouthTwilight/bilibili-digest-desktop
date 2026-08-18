@@ -1,7 +1,7 @@
 <script setup>
 import { ref, watch, onMounted } from "vue";
 import { currentVideo } from "../store.js";
-import { takeNoteAt } from "../notes-service.js";
+import { takeNoteAt, videoNoteContext } from "../notes-service.js";
 
 const notes = ref([]);
 const showAll = ref(false);
@@ -9,9 +9,13 @@ const toast = ref("");
 const saving = ref(false);
 
 async function refresh() {
-  notes.value = await window.desktop.listNotes(
-    showAll.value ? null : currentVideo.value ? `${currentVideo.value.bvid}@p${currentVideo.value.page}` : null,
-  );
+  if (showAll.value) {
+    notes.value = await window.desktop.listNotes("all");
+  } else if (currentVideo.value) {
+    notes.value = await window.desktop.listNotesFor(await videoNoteContext());
+  } else {
+    notes.value = [];
+  }
 }
 
 onMounted(refresh);
@@ -68,11 +72,10 @@ function seek(note) {
   </div>
 
   <div v-if="!notes.length" class="placeholder">
-    还没有笔记。三种方式任选：<br />
-    ① 视频播放时按 <b>n</b> 键；<br />
-    ② 鼠标悬停播放器，点「📝 记笔记」按钮；<br />
-    ③ 点上方「记下当前时刻」。<br />
-    笔记 = 当前时刻的字幕内容（AI 润色成句），点击时间戳可跳回对应画面。
+    还没有笔记。两种方式任选：<br />
+    ① 视频播放时按 <b>n</b> 键（先点一下视频画面让播放器获得焦点）；<br />
+    ② 点上方「记下当前时刻」。<br />
+    笔记 = 当前时刻的字幕内容（AI 润色成句），保存在默认保存目录的「视频名_BV号」文件夹里，点击时间戳可跳回对应画面。
   </div>
 
   <div v-for="note in notes" :key="note.id" class="note-item">
