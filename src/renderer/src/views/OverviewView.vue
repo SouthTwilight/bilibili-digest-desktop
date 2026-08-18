@@ -5,32 +5,16 @@ import { currentVideo, videoDetails, transcript, analysis, progress } from "../s
 const loading = ref(false);
 const error = ref("");
 
+// Never auto-run the LLM: opening a video only resets the view; summaries are
+// generated on explicit click (cached results return instantly).
 watch(
-  () => currentVideo.value?.bvid && [currentVideo.value.bvid, currentVideo.value.page],
-  async () => {
-    if (!currentVideo.value) return;
-    error.value = "";
+  () => currentVideo.value && [currentVideo.value.bvid, currentVideo.value.page],
+  () => {
     analysis.value = null;
-    loading.value = true;
+    error.value = "";
+    loading.value = false;
     progress.visible = false;
-    try {
-      const result = await window.desktop.analyzeDigest(
-        currentVideo.value.bvid,
-        currentVideo.value.page,
-      );
-      if (!result.success) {
-        error.value = result.message || result.error || "生成摘要失败";
-      } else {
-        analysis.value = result.analysis;
-      }
-    } catch (e) {
-      error.value = e.message;
-    } finally {
-      loading.value = false;
-      progress.visible = false;
-    }
   },
-  { immediate: false },
 );
 
 async function generate() {

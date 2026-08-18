@@ -237,3 +237,10 @@ html {
 .transcript-line { display: flex; gap: 10px; padding: 6px 8px; border-radius: 8px; font-size: 13px; line-height: 1.6; cursor: pointer; }
 .transcript-line:hover { background: var(--surface); }
 .transcript-time { flex: 0 0 40px; font-family: ui-monospace, monospace; font-weight: 700; color: var(--pink-strong); font-size: 12px; padding-top: 1px; }
+
+/* ---- settings read-only view ---- */
+.readonly-list { display: flex; flex-direction: column; gap: 4px; }
+.ro-row { display: flex; justify-content: space-between; gap: 12px; padding: 9px 2px; border-bottom: 1px dashed var(--line); font-size: 13px; }
+.ro-row span { color: var(--muted); flex: 0 0 auto; }
+.ro-row b { font-weight: 600; text-align: right; word-break: break-all; }
+.ro-dir { max-width: 210px; }

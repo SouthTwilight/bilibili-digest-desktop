@@ -1,11 +1,18 @@
 // Bilibili APIs need the logged-in cookies that live in the embedded browser
-// session. Plain Node fetch would be anonymous, so every Bilibili request goes
-// through net.fetch bound to that session. Electron is imported lazily so
-// plain-Node unit tests can import the pure modules without it.
+// session. Electron is imported lazily so plain-Node unit tests can import
+// the pure modules without it.
 let bilibiliSession = null;
 
 export function initBilibiliHttp(session) {
   bilibiliSession = session;
+}
+
+// SameSite=Lax session cookies (SESSDATA, buvid3, …) are withheld from
+// main-process requests because they have no site context, so we read the
+// cookies from the session and attach them as an explicit header instead.
+async function sessionCookieHeader(url) {
+  const cookies = await bilibiliSession.cookies.get({ url });
+  return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
 }
 
 export async function bilibiliFetch(url, options = {}) {
@@ -13,5 +20,15 @@ export async function bilibiliFetch(url, options = {}) {
   if (!bilibiliSession) {
     throw new Error("Bilibili session is not initialized yet.");
   }
-  return net.fetch(url, { session: bilibiliSession, ...options });
+  const cookie = await sessionCookieHeader(url);
+  return net.fetch(url, {
+    session: bilibiliSession,
+    useSessionCookies: true,
+    headers: {
+      Referer: "https://www.bilibili.com/",
+      ...(cookie ? { Cookie: cookie } : {}),
+      ...(options.headers || {}),
+    },
+    ...options,
+  });
 }
