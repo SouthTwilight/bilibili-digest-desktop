@@ -15,7 +15,18 @@
 
 html, body, #app { height: 100%; margin: 0; }
 
+/* The window page spans the full window; the Bilibili browser view overlays
+   everything right of --sidebar-width. Constrain the app to that column or
+   flex children (tabs) would drift under the browser view on wide windows.
+   The main process keeps this variable in sync via layout:update. */
+html {
+  --sidebar-width: 380px;
+}
+
 #app {
+  width: var(--sidebar-width);
+  min-width: var(--sidebar-width);
+  max-width: var(--sidebar-width);
   display: flex;
   flex-direction: column;
   background: var(--surface-soft);

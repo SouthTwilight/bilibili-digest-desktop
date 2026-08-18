@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
 import SettingsView from "./views/SettingsView.vue";
 
 const tabs = [
@@ -11,6 +11,14 @@ const tabs = [
   { id: "settings", label: "设置" },
 ];
 const active = ref("settings");
+
+onMounted(() => {
+  // The main process owns the split; follow it so the sidebar column always
+  // matches the browser view's left edge.
+  window.desktop.onLayout(({ sidebarWidth }) => {
+    document.documentElement.style.setProperty("--sidebar-width", `${sidebarWidth}px`);
+  });
+});
 </script>
 
 <template>

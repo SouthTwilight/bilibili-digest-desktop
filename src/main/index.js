@@ -57,13 +57,16 @@ function createWindow() {
 
   mainWindow.on("resize", layoutBrowserView);
 
-  // The Vue sidebar is the window page itself; it spans the full window and
-  // leaves the right `sidebarWidth` px transparent for the browser view.
+  // The Vue sidebar is the window page itself; it renders in the left column
+  // and leaves the remaining width transparent for the browser view.
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
     mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
   }
+  const pushLayout = () =>
+    mainWindow?.webContents.send("layout:update", { sidebarWidth });
+  mainWindow.webContents.on("did-finish-load", pushLayout);
 
   // Persistent, Bilibili-only browsing session. The UA is normalized so the
   // embedded Chromium does not advertise itself as Electron to risk control.
