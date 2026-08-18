@@ -130,7 +130,7 @@ Electron（主进程 Node）+ Vue 3 + Vite（侧边栏）+ electron-builder（NS
 主窗口
 ├─ 顶部工具条（后退/前进/刷新/首页/地址）      ── Vue 渲染进程
 ├─ 侧边栏：摘要│字幕│笔记│导出库│任务│设置      ── Vue 渲染进程
-└─ B站浏览区（WebContentsView，仅放行 bilibili 域，登录态持久化）
+└─ B站浏览区（WebContentsView，仅放行 B 站相关域（bilibili.com / biligame.com SSO），登录态持久化）
 
 主进程 src/main/core/
 ├─ bilibili.js        view/字幕/合集/音轨 API，wbi 请求签名（防软风控）

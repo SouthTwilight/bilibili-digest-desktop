@@ -7,6 +7,7 @@ import { createNotesStore } from "./core/notes.js";
 import { createExportQueue } from "./core/export-queue.js";
 import { initBilibiliHttp, initPageContextFetch } from "./core/http.js";
 import { parseVideoPageUrl } from "./core/bilibili.js";
+import { isAllowedUrl } from "./core/url-policy.js";
 
 // Sidebar hosts the Vue app (the window's own page); the browser view fills
 // the remaining space and is the ONLY place Bilibili pages render. The Vue
@@ -17,18 +18,6 @@ const TOOLBAR_HEIGHT = 44;
 let mainWindow = null;
 let browserView = null;
 let sidebarWidth = SIDEBAR_DEFAULT_WIDTH;
-
-function isAllowedUrl(url) {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
-    // Top-level navigation is restricted to Bilibili domains; media CDNs are
-    // only ever subresource requests and never navigate.
-    return /(^|\.)bilibili\.com$/i.test(parsed.hostname);
-  } catch {
-    return false;
-  }
-}
 
 function layoutBrowserView() {
   if (!mainWindow || !browserView) return;
