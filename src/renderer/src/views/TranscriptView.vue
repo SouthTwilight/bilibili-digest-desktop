@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, computed, nextTick } from "vue";
+import { ref, watch, computed, nextTick, onUnmounted } from "vue";
 import { currentVideo, videoDetails, transcript, progress } from "../store.js";
 
 const loading = ref(false);
@@ -69,6 +69,14 @@ function showToast(text) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (toast.value = ""), 2600);
 }
+
+// App-level modals render in the window page, which the browser view covers;
+// hide the view while either modal (collection export / explanation) is open.
+watch(
+  () => !!collectionModal.value || explainState.value.visible,
+  (open) => window.desktop.setViewVisible(!open),
+);
+onUnmounted(() => window.desktop.setViewVisible(true));
 
 // --- translation modes -----------------------------------------------------
 const mode = ref("original"); // original | zh | bilingual

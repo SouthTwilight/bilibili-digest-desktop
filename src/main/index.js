@@ -167,7 +167,27 @@ app.whenReady().then(() => {
     onTaskUpdate: (task) =>
       mainWindow?.webContents.send("export:task-update", task),
   });
-  registerIpcHandlers({ settingsStore, digestCache, notesStore, exportQueue, getBrowserView: () => browserView });
+  // App-level modals (collection export, explanations) live in the window
+  // page, which the browser view would otherwise cover — hide the view while
+  // a modal is open and restore it after.
+  const setBrowserViewVisible = (visible) => {
+    if (!mainWindow || !browserView) return;
+    if (visible) {
+      mainWindow.contentView.addChildView(browserView);
+      layoutBrowserView();
+    } else {
+      mainWindow.contentView.removeChildView(browserView);
+    }
+  };
+
+  registerIpcHandlers({
+    settingsStore,
+    digestCache,
+    notesStore,
+    exportQueue,
+    getBrowserView: () => browserView,
+    setBrowserViewVisible,
+  });
 
   createWindow();
 

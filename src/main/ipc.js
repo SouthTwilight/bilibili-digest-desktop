@@ -14,7 +14,7 @@ function onProgress(phase) {
   return (title, subtitle) => pushProgress({ phase, title, subtitle });
 }
 
-export function registerIpcHandlers({ settingsStore, digestCache, notesStore, exportQueue, getBrowserView }) {
+export function registerIpcHandlers({ settingsStore, digestCache, notesStore, exportQueue, getBrowserView, setBrowserViewVisible }) {
   ipcMain.handle("settings:get", () => settingsStore.load());
   ipcMain.handle("settings:set", (_event, input) => settingsStore.save(input || {}));
 
@@ -298,6 +298,12 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
   );
   ipcMain.handle("library:reveal", (_event, filePath) => {
     shell.showItemInFolder(filePath);
+    return { success: true };
+  });
+
+  // Hide/show the embedded browser view while an app-level modal is open.
+  ipcMain.handle("view:set-visible", (_event, visible) => {
+    setBrowserViewVisible?.(!!visible);
     return { success: true };
   });
 

@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld("desktop", {
   libraryList: () => ipcRenderer.invoke("library:list"),
   libraryRead: (filePath) => ipcRenderer.invoke("library:read", filePath),
   libraryReveal: (filePath) => ipcRenderer.invoke("library:reveal", filePath),
+  setViewVisible: (visible) => ipcRenderer.invoke("view:set-visible", visible),
 
   onExportTaskUpdate: (callback) =>
     ipcRenderer.on("export:task-update", (_event, task) => callback(task)),
