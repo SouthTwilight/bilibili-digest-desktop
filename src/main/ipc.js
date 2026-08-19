@@ -57,6 +57,9 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
     const wantSubtitle = mode === "subtitle";
     if (wantAsr) sourceOverride = "asr";
     if (wantSubtitle) sourceOverride = "subtitle";
+    // Persist the user's track choice (native CC vs AI) so the digest
+    // analysis and other consumers follow what the sidebar displays.
+    const trackOverride = track === "cc" ? "cc" : track === "ai" ? "ai" : cached.trackOverride || null;
 
     const persistAsr = (transcript) => {
       digestCache.save(cacheKey, {
@@ -64,10 +67,11 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
         transcripts: { ...(cached.transcripts || {}), asr: transcript },
         translationsBySource: cached.translationsBySource || {},
         sourceOverride,
+        trackOverride,
       });
     };
     const persistOverride = () => {
-      digestCache.save(cacheKey, { ...cached, sourceOverride });
+      digestCache.save(cacheKey, { ...cached, sourceOverride, trackOverride });
     };
 
     // ASR results are always served from the paid cache when present.
@@ -91,7 +95,7 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
         videoId,
         page: page_,
         mode: wantAsr ? "asr" : "subtitle",
-        track: track === "cc" ? "cc" : "ai",
+        track: trackOverride || "ai",
         onProgress: onProgress("transcript"),
       });
       if (transcript.success) {
@@ -127,7 +131,8 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
 
       const settings = settingsStore.load();
       // Subtitle transcripts are not cached: analyze the paid ASR slot when
-      // the user's standing choice is ASR, otherwise fetch a fresh subtitle.
+      // the user's standing choice is ASR, otherwise fetch a fresh subtitle
+      // with the user's preferred track (native CC vs AI).
       let transcript = cached.sourceOverride === "asr" ? cached.transcripts?.asr : null;
       if (!transcript?.success) {
         const result = await fetchTranscript({
@@ -135,6 +140,7 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
           videoId,
           page: page_,
           mode: cached.sourceOverride === "asr" ? "asr" : "subtitle",
+          track: cached.trackOverride === "cc" ? "cc" : "ai",
           onProgress: onProgress("transcript"),
         });
         if (!result.success) {
