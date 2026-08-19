@@ -113,7 +113,7 @@
 
 - 按 token 计费，输入和输出分别计价。
 - 本项目使用 `deepseek-v4-flash`（DeepSeek Flash）模型，通常比满血推理模型更便宜、响应更快。
-- 智谱 Coding Plan 订阅 Key **不可用**，必须是开放平台的按量付费 API Key。
+- 默认开放平台的按量付费 API Key。
 
 官方文档：[DeepSeek 模型与价格](https://api-docs.deepseek.com/zh-cn/quick_start/pricing)
 
@@ -130,7 +130,7 @@
 
 - 按 token 计费，不同 GLM 模型价格不同。
 - 本项目使用 `glm-5.2`，具体单价以智谱开放平台控制台实时价格为准。
-- 智谱 Coding Plan 订阅 Key **不可用**（DeepSeek 无此类套餐），必须是 API 按量付费 Key。
+- 智谱 Coding Plan 订阅 Key **不可用**，必须是 API 按量付费 Key。
 
 官方文档：[智谱开放平台](https://open.bigmodel.cn)、[Z.AI Pricing](https://docs.z.ai/guides/overview/pricing)
 
