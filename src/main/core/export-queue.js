@@ -85,6 +85,9 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate }) 
           videoId: item.bvid,
           page: item.page || 1,
           mode: wantsAsr ? "asr" : "subtitle",
+          // Follow the user's per-video track choice (native CC vs AI);
+          // fall back to "ai" when no preference was ever set.
+          track: item.track || cached?.trackOverride || "ai",
         });
       }
       if (!transcript.success) {

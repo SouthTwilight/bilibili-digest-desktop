@@ -24,9 +24,10 @@ async function refreshCollectionInfo() {
 async function exportSingleNow() {
   if (!currentVideo.value) return;
   // Export what the user is actually looking at: the displayed transcript's
-  // source picks the queue item's source mode.
+  // source picks the queue item's source mode, and the current track
+  // (native CC vs AI) rides along.
   const source = transcript.value?.source === "bilibili-subtitle" ? "subtitle" : "asr";
-  await window.desktop.exportSingle(currentVideo.value.bvid, currentVideo.value.page, exportFormat.value, source);
+  await window.desktop.exportSingle(currentVideo.value.bvid, currentVideo.value.page, exportFormat.value, source, lastLoadTrack);
   error.value = "";
   showToast("已加入导出队列，见「任务」页");
 }

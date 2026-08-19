@@ -33,8 +33,8 @@ contextBridge.exposeInMainWorld("desktop", {
   saveTranslations: (videoId, page, translations, source) =>
     ipcRenderer.invoke("digest:save-translations", { videoId, page, translations, source }),
 
-  exportSingle: (bvid, page, format, sourceMode) =>
-    ipcRenderer.invoke("export:single", { bvid, page, format, sourceMode }),
+  exportSingle: (bvid, page, format, sourceMode, track) =>
+    ipcRenderer.invoke("export:single", { bvid, page, format, sourceMode, track }),
   exportCollectionPreview: (videoId) =>
     ipcRenderer.invoke("export:collection-preview", videoId),
   exportCollectionConfirm: (collectionTitle, format, items) =>
