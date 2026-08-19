@@ -143,15 +143,36 @@ export async function getCollectionInfo(videoId) {
 
 // ---- Bilibili subtitle track ---------------------------------------------
 
-async function fetchSubtitleTrackList(videoId, cid) {
-  const rawUrl = `https://api.bilibili.com/x/player/v2?bvid=${encodeURIComponent(videoId)}&cid=${cid}`;
-  const url = await wbiSignedUrl(rawUrl);
+// Device-fingerprint params the real web player always sends. Without them
+// B站's risk control routes player API calls into a degraded pool (empty or
+// even cross-wired subtitle lists). These encode a generic Chromium WebGL /
+// D3D11 fingerprint and neutral interaction telemetry — the same class of
+// values the embedded view itself reports.
+const DM_IMG_STR = "V2ViR0wgMS4wIChPcGVuR0wgRVMgMi4wIENocm9taXVtKQ";
+const DM_COVER_IMG_STR =
+  "QU5HTEUgKE1pY3Jvc29mdCwgTWljcm9zb2Z0IEJhc2ljIFJlbmRlciBEcml2ZXIgKDB4MDAwMDAwOEMpIERpcmVjdDNEMTEgdnNfNV8wIHBzXzVfMCwgRDNEMTEpR29vZ2xlIEluYy4gKE1pY3Jvc29mdC";
+const DM_IMG_INTER = '{"ds":[],"wh":[6907,7244,35],"of":[22,44,22]}';
 
-  // Bilibili intermittently soft-throttles player/v2 with an empty subtitle
-  // list. Retry a couple of times with a short delay before reporting
-  // "no subtitles" — no page-context fallback: the browser view's page is
-  // unsandboxed third-party state we cannot trust to answer for a
-  // different video's parameters.
+function playerWbiV2Url(aid, cid) {
+  const params = new URLSearchParams({
+    aid: String(aid),
+    cid: String(cid),
+    isGaiaAvoided: "false",
+    web_location: "1315873",
+    dm_img_list: "[]",
+    dm_img_str: DM_IMG_STR,
+    dm_cover_img_str: DM_COVER_IMG_STR,
+    dm_img_inter: DM_IMG_INTER,
+  });
+  return `https://api.bilibili.com/x/player/wbi/v2?${params.toString()}`;
+}
+
+async function fetchSubtitleTrackList(aid, cid) {
+  const url = await wbiSignedUrl(playerWbiV2Url(aid, cid));
+
+  // Bilibili intermittently soft-throttles the player API with an empty
+  // subtitle list. Retry a couple of times with a short delay before
+  // reporting "no subtitles".
   let payload = null;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const response = await bilibiliFetch(url);
@@ -173,14 +194,14 @@ export async function bilibiliVideoHasSubtitle(videoId) {
     const view = await fetchBilibiliView(videoId);
     const cid = view.pages?.[0]?.cid;
     if (!cid) return false;
-    const subtitles = await fetchSubtitleTrackList(videoId, cid);
+    const subtitles = await fetchSubtitleTrackList(view.aid, cid);
     return subtitles.some((item) => item?.subtitle_url);
   } catch {
     return false;
   }
 }
 
-export async function fetchBilibiliSubtitleTranscript(videoId, cid, expectedDurationSeconds = 0) {
+export async function fetchBilibiliSubtitleTranscript(videoId, aid, cid, expectedDurationSeconds = 0) {
   // Bilibili's CDN intermittently serves a WRONG video's subtitle file for
   // the right URL (observed with identical requests from one context
   // succeeding and another receiving cross-wired content). The only reliable
@@ -196,7 +217,7 @@ export async function fetchBilibiliSubtitleTranscript(videoId, cid, expectedDura
   try {
     let lastMismatch = false;
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const subtitles = await fetchSubtitleTrackList(videoId, cid);
+      const subtitles = await fetchSubtitleTrackList(aid, cid);
       // AI subtitles first (most complete & granular), then human CC tracks,
       // then whatever exists.
       const preferred =
