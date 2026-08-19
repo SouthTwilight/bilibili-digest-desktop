@@ -308,14 +308,12 @@ function seek(seconds) {
 
   <div v-else-if="error" class="error-note">
     {{ error }}
-    <div style="display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap">
-      <button class="btn" @click="retryLoad">重试</button>
-      <button
-        v-if="asrConfigured && lastLoadMode !== 'asr'"
-        class="btn"
-        @click="switching = true; load('asr')"
-      >语音识别字幕</button>
-    </div>
+    <button
+      v-if="asrConfigured && lastLoadMode !== 'asr'"
+      class="btn"
+      style="margin-top: 10px"
+      @click="switching = true; load('asr')"
+    >语音识别字幕</button>
   </div>
 
   <div v-else-if="transcript" class="transcript" @mouseup="onTranscriptMouseup">

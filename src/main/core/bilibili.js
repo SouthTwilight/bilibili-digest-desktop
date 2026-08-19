@@ -239,7 +239,7 @@ export async function fetchBilibiliSubtitleTranscript(videoId, aid, cid, expecte
           success: false,
           error: "SUBTITLE_EMPTY",
           message:
-            "字幕获取失败：B站连续多次返回空字幕列表（通常是被临时限流，稍后点「重试」即可；若该视频确实没有字幕，可改用语音识别）。",
+            "这个视频没有 B 站字幕。可点击下方「语音识别字幕」用 AI 转写生成。",
         };
       }
       const subtitleUrl = preferred.subtitle_url.startsWith("//")
@@ -265,8 +265,8 @@ export async function fetchBilibiliSubtitleTranscript(videoId, aid, cid, expecte
       success: false,
       error: "SUBTITLE_MISMATCH",
       message: lastMismatch
-        ? "字幕校验失败：B站多次返回与视频时长不符的字幕内容（服务端内容错乱），请稍后点「重试」。"
-        : "字幕获取失败。",
+        ? "字幕校验失败：B站多次返回与视频时长不符的内容，请重新打开视频再试；若持续出现，可改用语音识别。"
+        : "字幕获取失败，请重新打开视频再试。",
     };
   } catch (error) {
     return { success: false, error: error.message, message: `B 站字幕获取失败：${error.message}` };
