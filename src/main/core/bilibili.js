@@ -1,4 +1,5 @@
 import { bilibiliFetch } from "./http.js";
+import { getFingerprintParams } from "./cdp-fingerprint.js";
 import { createHash } from "node:crypto";
 
 const BILIBILI_REFERER = "https://www.bilibili.com/";
@@ -145,24 +146,20 @@ export async function getCollectionInfo(videoId) {
 
 // Device-fingerprint params the real web player always sends. Without them
 // B站's risk control routes player API calls into a degraded pool (empty or
-// even cross-wired subtitle lists). These encode a generic Chromium WebGL /
-// D3D11 fingerprint and neutral interaction telemetry — the same class of
-// values the embedded view itself reports.
-const DM_IMG_STR = "V2ViR0wgMS4wIChPcGVuR0wgRVMgMi4wIENocm9taXVtKQ";
-const DM_COVER_IMG_STR =
-  "QU5HTEUgKE1pY3Jvc29mdCwgTWljcm9zb2Z0IEJhc2ljIFJlbmRlciBEcml2ZXIgKDB4MDAwMDAwOEMpIERpcmVjdDNEMTEgdnNfNV8wIHBzXzVfMCwgRDNEMTEpR29vZ2xlIEluYy4gKE1pY3Jvc29mdC";
-const DM_IMG_INTER = '{"ds":[],"wh":[6907,7244,35],"of":[22,44,22]}';
-
+// even cross-wired subtitle lists). The live values are captured from the
+// browser view's own player requests (see cdp-fingerprint.js); the literals
+// below are only the bootstrap fallback before the first capture.
 function playerWbiV2Url(aid, cid) {
+  const fp = getFingerprintParams();
   const params = new URLSearchParams({
     aid: String(aid),
     cid: String(cid),
     isGaiaAvoided: "false",
-    web_location: "1315873",
+    web_location: fp.web_location || "1315873",
     dm_img_list: "[]",
-    dm_img_str: DM_IMG_STR,
-    dm_cover_img_str: DM_COVER_IMG_STR,
-    dm_img_inter: DM_IMG_INTER,
+    dm_img_str: fp.dm_img_str,
+    dm_cover_img_str: fp.dm_cover_img_str,
+    dm_img_inter: fp.dm_img_inter,
   });
   return `https://api.bilibili.com/x/player/wbi/v2?${params.toString()}`;
 }

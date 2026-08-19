@@ -6,6 +6,7 @@ import { createDigestCache } from "./core/digest-cache.js";
 import { createNotesStore } from "./core/notes.js";
 import { createExportQueue } from "./core/export-queue.js";
 import { initBilibiliHttp } from "./core/http.js";
+import { initFingerprintCapture } from "./core/cdp-fingerprint.js";
 import { parseVideoPageUrl } from "./core/bilibili.js";
 import { isAllowedUrl } from "./core/url-policy.js";
 
@@ -164,6 +165,10 @@ function createWindow() {
   contents.on("did-navigate", notifyVideoChange);
   contents.on("did-navigate-in-page", notifyVideoChange);
 
+  // Attach the fingerprint capture BEFORE the first page load so its
+  // Network domain sees the page's own player requests from the start.
+  initFingerprintCapture(() => browserView?.webContents ?? null);
+
   // Bilibili's new homepage pins a large min-width on its root/header
   // (banner), which overflows the browser-view column and forces horizontal
   // scrolling. Re-inject a fit override after every navigation.
@@ -205,7 +210,10 @@ function createWindow() {
 app.whenReady().then(() => {
   const bilibiliSession = session.fromPartition("persist:bilibili");
   initBilibiliHttp(bilibiliSession);
-
+  // Passively capture the page's real device fingerprints for our own
+  // player-API requests; the resolver is lazy because the view is created
+  // inside createWindow().
+  initFingerprintCapture(() => browserView?.webContents ?? null);
   const settingsStore = createSettingsStore(join(app.getPath("userData"), "settings.json"), {
     saveDir: join(app.getPath("documents"), "BilibiliDigest"),
   });
