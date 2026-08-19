@@ -1,4 +1,4 @@
-import { bilibiliFetch, fetchViaPage } from "./http.js";
+import { bilibiliFetch } from "./http.js";
 import { createHash } from "node:crypto";
 
 const BILIBILI_REFERER = "https://www.bilibili.com/";
@@ -146,27 +146,26 @@ export async function getCollectionInfo(videoId) {
 async function fetchSubtitleTrackList(videoId, cid) {
   const rawUrl = `https://api.bilibili.com/x/player/v2?bvid=${encodeURIComponent(videoId)}&cid=${cid}`;
   const url = await wbiSignedUrl(rawUrl);
-  const response = await bilibiliFetch(url);
-  const payload = await response.json();
-  let subtitles = payload?.data?.subtitle?.subtitles || [];
-  if (payload?.code === 0 && subtitles.length) return subtitles;
 
-  // Belt and braces: retry unsigned inside the page context (fully cookied)
-  // before giving up.
-  try {
-    const pagePayload = await fetchViaPage(rawUrl);
-    if (pagePayload?.code === 0) {
-      subtitles = pagePayload?.data?.subtitle?.subtitles || [];
-      if (subtitles.length) return subtitles;
-    }
-  } catch {
-    // Page not ready or not on bilibili — fall through to the plain result.
+  // Bilibili intermittently soft-throttles player/v2 with an empty subtitle
+  // list. Retry a couple of times with a short delay before reporting
+  // "no subtitles" — no page-context fallback: the browser view's page is
+  // unsandboxed third-party state we cannot trust to answer for a
+  // different video's parameters.
+  let payload = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await bilibiliFetch(url);
+    payload = await response.json();
+    const subtitles = payload?.data?.subtitle?.subtitles || [];
+    if (payload?.code === 0 && subtitles.length) return subtitles;
+    if (payload && payload.code !== 0) break;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
   if (!payload || payload.code !== 0) {
     throw new Error(payload?.message || "无法读取 B 站字幕列表。");
   }
-  return subtitles;
+  return payload?.data?.subtitle?.subtitles || [];
 }
 
 export async function bilibiliVideoHasSubtitle(videoId) {
@@ -184,8 +183,12 @@ export async function bilibiliVideoHasSubtitle(videoId) {
 export async function fetchBilibiliSubtitleTranscript(videoId, cid) {
   try {
     const subtitles = await fetchSubtitleTrackList(videoId, cid);
+    // AI subtitles first (most complete & granular), then human CC tracks,
+    // then whatever exists.
     const preferred =
-      subtitles.find((item) => /zh|ai-zh/i.test(item.lan || "")) || subtitles[0];
+      subtitles.find((item) => item?.lan === "ai-zh") ||
+      subtitles.find((item) => /zh/i.test(item.lan || "")) ||
+      subtitles[0];
     if (!preferred?.subtitle_url) {
       return {
         success: false,

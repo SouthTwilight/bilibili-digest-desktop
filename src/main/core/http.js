@@ -3,23 +3,8 @@
 // the pure modules without it.
 let bilibiliSession = null;
 
-// Optional fallback: run a fetch INSIDE the embedded Bilibili page. B站's
-// player/v2 intermittently returns an empty subtitle list for unsigned
-// main-process requests; the page's own context signs everything, so core
-// services fall back to this when the direct call comes back empty.
-let pageContextFetch = null;
-
 export function initBilibiliHttp(session) {
   bilibiliSession = session;
-}
-
-export function initPageContextFetch(fetchInPage) {
-  pageContextFetch = fetchInPage;
-}
-
-export function fetchViaPage(url) {
-  if (!pageContextFetch) return Promise.reject(new Error("页面上下文不可用"));
-  return pageContextFetch(url);
 }
 
 // SameSite=Lax session cookies (SESSDATA, buvid3, …) are withheld from

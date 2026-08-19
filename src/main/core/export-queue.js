@@ -66,32 +66,17 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate }) 
     item.itemStatus = "running";
     notify(task);
     try {
-      // Source resolution: exports must match what the user actually uses.
-      //   1. An explicit ASR opt-in uses the cached ASR slot when present
-      //      (never re-pays recognition for an already-transcribed video).
-      //   2. Otherwise the video's ACTIVE cached transcript — the one the
-      //      sidebar last showed — is exported as-is.
-      //   3. Only videos without any usable cache fall back to fetching,
-      //      honouring the source picked in the preview dialog.
+      // Source resolution: ASR exports reuse the paid cache slot; subtitle
+      // exports always fetch fresh (subtitles are cheap, uncached API calls
+      // whose content regenerates server-side).
       const cacheKey = `${item.bvid}@p${item.page || 1}`;
       const cached = digestCache.load(cacheKey);
+      const asrSlot = cached?.transcripts?.asr?.success ? cached.transcripts.asr : null;
       let transcript = null;
-      if (item.useAsr && cached?.transcripts?.asr?.success) {
-        transcript = cached.transcripts.asr;
-      } else if (!item.useAsr) {
-        // Explicit source wins (what the sidebar displays); fall back to the
-        // saved override, then the active slot.
-        const wanted =
-          item.sourceMode === "asr"
-            ? cached?.transcripts?.asr
-            : item.sourceMode === "subtitle"
-              ? cached?.transcripts?.subtitle
-              : cached?.sourceOverride === "asr"
-                ? cached?.transcripts?.asr
-                : cached?.sourceOverride === "subtitle"
-                  ? cached?.transcripts?.subtitle
-                  : cached?.transcript;
-        if (wanted?.success) transcript = wanted;
+      const wantsAsr = item.useAsr || item.sourceMode === "asr" ||
+        (!item.useAsr && item.sourceMode !== "subtitle" && cached?.sourceOverride === "asr");
+      if (wantsAsr && asrSlot) {
+        transcript = asrSlot;
       }
       if (!transcript) {
         const settings = settingsStore.load();
@@ -99,7 +84,7 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate }) 
           settings,
           videoId: item.bvid,
           page: item.page || 1,
-          mode: item.useAsr ? "asr" : item.sourceMode === "asr" ? "asr" : "subtitle",
+          mode: wantsAsr ? "asr" : "subtitle",
         });
       }
       if (!transcript.success) {

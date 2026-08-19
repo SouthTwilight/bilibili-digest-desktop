@@ -34,106 +34,75 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
     getCollectionInfo(videoId).catch((error) => ({ inCollection: false, error: error.message })),
   );
 
-  // Transcript for the sidebar: cache-first, then subtitle/ASR. Each source
-  // keeps its own slot in the cache so switching back and forth never
-  // re-fetches (and never re-pays for ASR). A user's explicit source switch
-  // is stored as `sourceOverride` and survives background auto-reloads
-  // (Bilibili's in-page navigations re-trigger auto mode, which must not
-  // silently flip the video back to the other source).
+  // Transcript for the sidebar. Caching policy:
+  //   - Bilibili subtitles are NEVER cached — they are cheap API calls, and
+  //     B站 serves slightly different (regenerating) AI subtitle content over
+  //     time, so caching them only risks stale or cross-wired data. Every
+  //     open fetches fresh, which also means bad data never persists.
+  //   - ASR transcripts ARE cached (transcripts.asr slot) — recognition is
+  //     slow and billed, so it must survive reopens. A user's explicit ASR
+  //     choice is stored as `sourceOverride` and survives auto-reloads.
   ipcMain.handle("transcript:get", async (_event, { videoId, page, mode }) => {
     const page_ = Math.max(1, Number(page) || 1);
     const cacheKey = `${videoId}@p${page_}`;
-
     const cached = digestCache.load(cacheKey) || {};
-    // Migrate single-transcript entries into per-source slots.
-    const slots = cached.transcripts || {};
-    if (!slots.subtitle && !slots.asr && cached.transcript?.success) {
-      if (cached.transcript.source === "bilibili-subtitle") slots.subtitle = cached.transcript;
-      else slots.asr = cached.transcript;
-    }
-    const translationsBySource = cached.translationsBySource || {};
+    const asrSlot = cached.transcripts?.asr?.success ? cached.transcripts.asr : null;
+    const asrTranslations = cached.translationsBySource?.asr || {};
     let sourceOverride = cached.sourceOverride || null;
-    const translationsFor = (slot) =>
-      slot === "asr" ? translationsBySource.asr || {} : translationsBySource.subtitle || {};
-
-    const persist = (slotKey, transcript) => {
-      slots[slotKey] = transcript;
-      digestCache.save(cacheKey, {
-        ...cached,
-        transcript, // active transcript (analysis reads this)
-        transcripts: slots,
-        translationsBySource,
-        sourceOverride,
-      });
-    };
 
     const wantAsr = mode === "asr";
     const wantSubtitle = mode === "subtitle";
     if (wantAsr) sourceOverride = "asr";
     if (wantSubtitle) sourceOverride = "subtitle";
 
-    // Cache hits for the explicitly requested source.
-    if (wantAsr && slots.asr?.success) {
-      persist("asr", slots.asr);
-      return { success: true, fromCache: true, transcript: slots.asr, translations: translationsFor("asr") };
-    }
-    if (wantSubtitle && slots.subtitle?.success) {
-      persist("subtitle", slots.subtitle);
-      return { success: true, fromCache: true, transcript: slots.subtitle, translations: translationsFor("subtitle") };
+    const persistAsr = (transcript) => {
+      digestCache.save(cacheKey, {
+        ...cached,
+        transcripts: { ...(cached.transcripts || {}), asr: transcript },
+        translationsBySource: cached.translationsBySource || {},
+        sourceOverride,
+      });
+    };
+    const persistOverride = () => {
+      digestCache.save(cacheKey, { ...cached, sourceOverride });
+    };
+
+    // ASR results are always served from the paid cache when present.
+    if (wantAsr && asrSlot) {
+      persistOverride();
+      return { success: true, fromCache: true, transcript: asrSlot, translations: asrTranslations };
     }
 
     try {
       const settings = settingsStore.load();
 
-      if (!wantAsr) {
-        // The user's explicit choice always wins over the default order.
-        if (sourceOverride === "asr" && slots.asr?.success) {
-          persist("asr", slots.asr);
-          return { success: true, fromCache: true, transcript: slots.asr, translations: translationsFor("asr") };
-        }
-        // auto: subtitle slot first. When an ASR slot already exists, probe
-        // subtitles only — a failed probe reuses the paid ASR transcript
-        // instead of re-running recognition.
-        if (slots.subtitle?.success) {
-          persist("subtitle", slots.subtitle);
-          return { success: true, fromCache: true, transcript: slots.subtitle, translations: translationsFor("subtitle") };
-        }
-        if (slots.asr?.success) {
-          // When a paid ASR transcript already exists, probe subtitles only;
-          // a failed probe reuses the ASR transcript instead of re-running
-          // recognition.
-          const probe = await fetchTranscript({ settings, videoId, page: page_, mode: "subtitle", onProgress: onProgress("transcript") }).catch(() => null);
-          if (probe?.success) {
-            persist("subtitle", probe);
-            return { success: true, transcript: probe, translations: translationsFor("subtitle") };
-          }
-          persist("asr", slots.asr);
-          return { success: true, fromCache: true, transcript: slots.asr, translations: translationsFor("asr") };
-        }
+      // auto/subtitle: fresh subtitle fetch, unless the user's standing
+      // choice is ASR and a paid transcript exists.
+      if (!wantAsr && sourceOverride === "asr" && asrSlot) {
+        persistOverride();
+        return { success: true, fromCache: true, transcript: asrSlot, translations: asrTranslations };
       }
 
       const transcript = await fetchTranscript({
         settings,
         videoId,
         page: page_,
-        mode,
+        mode: wantAsr ? "asr" : "subtitle",
         onProgress: onProgress("transcript"),
       });
       if (transcript.success) {
-        const slotKey = transcript.source === "bilibili-subtitle" ? "subtitle" : "asr";
-        const existingDetails = cached.details?.title
-          ? cached.details
-          : await getVideoDetails(videoId).catch(() => null);
-        slots[slotKey] = transcript;
-        digestCache.save(cacheKey, {
-          ...cached,
+        if (wantAsr || transcript.source !== "bilibili-subtitle") {
+          persistAsr(transcript);
+        } else {
+          persistOverride();
+        }
+        return {
+          success: true,
           transcript,
-          transcripts: slots,
-          translationsBySource,
-          details: existingDetails,
-          sourceOverride,
-        });
-        return { success: true, transcript, translations: translationsFor(slotKey) };
+          // Subtitle content is not cached, so neither are its translations
+          // (segment ids would not stay aligned across regenerations).
+          translations: wantAsr ? asrTranslations : {},
+        };
       }
       return transcript;
     } catch (error) {
@@ -145,18 +114,23 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
     const page_ = Math.max(1, Number(page) || 1);
     const cacheKey = `${videoId}@p${page_}`;
     try {
-      const cached = digestCache.load(cacheKey);
-      if (cached?.analysis && cached?.transcript?.success) {
+      const cached = digestCache.load(cacheKey) || {};
+      // Analyses are stable summaries — cache them independent of the
+      // (no longer cached) subtitle transcript.
+      if (cached.analysis) {
         return { success: true, fromCache: true, analysis: cached.analysis };
       }
 
       const settings = settingsStore.load();
-      let transcript = cached?.transcript;
+      // Subtitle transcripts are not cached: analyze the paid ASR slot when
+      // the user's standing choice is ASR, otherwise fetch a fresh subtitle.
+      let transcript = cached.sourceOverride === "asr" ? cached.transcripts?.asr : null;
       if (!transcript?.success) {
         const result = await fetchTranscript({
           settings,
           videoId,
           page: page_,
+          mode: cached.sourceOverride === "asr" ? "asr" : "subtitle",
           onProgress: onProgress("transcript"),
         });
         if (!result.success) {
@@ -169,7 +143,13 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
       const details = (cached?.details?.title ? cached.details : null) || (await getVideoDetails(videoId));
       const result = await analyzeTranscript({ settings, videoDetails: details, transcript });
       if (result.success) {
-        digestCache.save(cacheKey, { transcript, analysis: result.analysis, details });
+        digestCache.save(cacheKey, {
+          ...(transcript.source === "bilibili-subtitle"
+            ? cached
+            : { ...cached, transcripts: { ...(cached.transcripts || {}), asr: transcript } }),
+          analysis: result.analysis,
+          details,
+        });
       }
       return result;
     } catch (error) {

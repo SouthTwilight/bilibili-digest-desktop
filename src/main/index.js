@@ -5,7 +5,7 @@ import { createSettingsStore } from "./core/settings-store.js";
 import { createDigestCache } from "./core/digest-cache.js";
 import { createNotesStore } from "./core/notes.js";
 import { createExportQueue } from "./core/export-queue.js";
-import { initBilibiliHttp, initPageContextFetch } from "./core/http.js";
+import { initBilibiliHttp } from "./core/http.js";
 import { parseVideoPageUrl } from "./core/bilibili.js";
 import { isAllowedUrl } from "./core/url-policy.js";
 
@@ -198,13 +198,6 @@ function createWindow() {
 app.whenReady().then(() => {
   const bilibiliSession = session.fromPartition("persist:bilibili");
   initBilibiliHttp(bilibiliSession);
-  // Fallback fetch executed inside the Bilibili page (signed + cookied by
-  // the page itself); used when direct main-process calls get throttled.
-  initPageContextFetch((url) =>
-    browserView?.webContents.executeJavaScript(
-      `fetch(${JSON.stringify(url)}, { credentials: "include" }).then((r) => r.json())`,
-    ),
-  );
 
   const settingsStore = createSettingsStore(join(app.getPath("userData"), "settings.json"), {
     saveDir: join(app.getPath("documents"), "BilibiliDigest"),

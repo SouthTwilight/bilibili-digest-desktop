@@ -156,12 +156,17 @@ async function ensureTranslated() {
       done += batch.length;
       translateProgress.value = `翻译中 ${done}/${pending.length} 段`;
     }
-    await window.desktop.saveTranslations(
-      currentVideo.value.bvid,
-      currentVideo.value.page,
-      { ...translations.value },
-      isSubtitleSource.value ? "subtitle" : "asr",
-    ).catch(() => {});
+    // Only ASR translations are persisted — subtitle content is fetched
+    // fresh every time and regenerates server-side, so cached segment
+    // translations would no longer align.
+    if (!isSubtitleSource.value) {
+      await window.desktop.saveTranslations(
+        currentVideo.value.bvid,
+        currentVideo.value.page,
+        { ...translations.value },
+        "asr",
+      ).catch(() => {});
+    }
   } finally {
     translating.value = false;
     translateProgress.value = "";
