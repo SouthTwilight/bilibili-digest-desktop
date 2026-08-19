@@ -51,7 +51,7 @@
 
 从 [Releases](../../releases) 下载 `Bilibili Digest Setup x.x.x.exe` 安装。首次启动引导选择保存目录，然后在右侧页面扫码登录 B 站，最后到「设置」页填入：
 
-- **文本模型 Key**：智谱开放平台（GLM）或 DeepSeek 的按量付费 Key（Coding Plan 类订阅 Key 不可用）
+- **文本模型 Key**：智谱开放平台（GLM）或 DeepSeek 的按量付费 Key（智谱 Coding Plan 订阅 Key 不可用）
 - **语音识别 Key**（可选）：阿里百炼 API Key，或火山引擎语音技术应用维度的 Access Token + App ID（成对填写）
 
 ## API Key 获取与费用说明
@@ -113,7 +113,7 @@
 
 - 按 token 计费，输入和输出分别计价。
 - 本项目使用 `deepseek-v4-flash`（DeepSeek Flash）模型，通常比满血推理模型更便宜、响应更快。
-- Coding Plan 等订阅类 Key **不可用**，必须是开放平台的按量付费 API Key。
+- 智谱 Coding Plan 订阅 Key **不可用**，必须是开放平台的按量付费 API Key。
 
 官方文档：[DeepSeek 模型与价格](https://api-docs.deepseek.com/zh-cn/quick_start/pricing)
 
@@ -130,7 +130,7 @@
 
 - 按 token 计费，不同 GLM 模型价格不同。
 - 本项目使用 `glm-5.2`，具体单价以智谱开放平台控制台实时价格为准。
-- Coding Plan 类订阅 Key **不可用**，必须是 API 按量付费 Key。
+- 智谱 Coding Plan 订阅 Key **不可用**（DeepSeek 无此类套餐），必须是 API 按量付费 Key。
 
 官方文档：[智谱开放平台](https://open.bigmodel.cn)、[Z.AI Pricing](https://docs.z.ai/guides/overview/pricing)
 
@@ -186,7 +186,7 @@ Electron（主进程 Node）+ Vue 3 + Vite（侧边栏）+ electron-builder（NS
 - 语音识别按量计费（百炼 ≈0.79 元/小时，豆包 ≈4.5 元/小时），有 B 站字幕的视频始终零成本
 - ASR 转写结果缓存 30 天，同一视频不重复计费；B 站字幕即取即用不缓存（内容服务端会更新）
 - 豆包语音识别有并发配额，导出队列对 ASR 任务严格串行并在额度不足时提示
-- 智谱 Coding Plan / DeepSeek Coding Plan 等订阅类 Key 不可用，必须是按量付费 API Key
+- 智谱 Coding Plan 订阅 Key 不可用于本应用，必须是按量付费 API Key（DeepSeek 官方无 Coding Plan，均为按量付费）
 
 ## License
 
