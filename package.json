@@ -12,7 +12,8 @@
     "build": "electron-vite build && node scripts/copy-assets.mjs",
     "start": "electron-vite preview",
     "package": "npm run build && electron-builder",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "debug:subtitle": "node scripts/debug-subtitle-server.mjs"
   },
   "dependencies": {
     "vue": "^3.5.13"
