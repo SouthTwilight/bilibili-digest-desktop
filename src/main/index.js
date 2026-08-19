@@ -105,6 +105,13 @@ function createWindow() {
       .replace(/\s*Electron\/\S+/i, "")
       .replace(/\s*bilibili-digest-desktop\/\S+/i, ""),
   );
+  // Bilibili is a domestic service: force DIRECT connections. System proxies
+  // (127.0.0.1:1080 etc.) route Bilibili CDN traffic through foreign/shared
+  // exits, which we measured serving WRONG subtitle files for the same URLs
+  // — the root cause behind every "cross-wired transcript" incident.
+  bilibiliSession
+    .setProxy({ mode: "direct" })
+    .catch(() => {});
 
   // The Bilibili view stays pristine: no preload, no injected UI. Note
   // taking happens from the sidebar button only.

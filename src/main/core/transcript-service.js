@@ -16,7 +16,9 @@ export async function fetchTranscript({ settings, videoId, page = 1, mode = "aut
   const cid = resolvePageCid(view, page);
 
   if (mode !== "asr") {
-    return fetchBilibiliSubtitleTranscript(videoId, cid);
+    // Pass the video's real duration so cross-wired subtitle files get
+    // caught by the span check inside.
+    return fetchBilibiliSubtitleTranscript(videoId, cid, Math.round(Number(view.duration) || 0));
   }
 
   const doubaoReady = settings.asrProvider === "doubao" && settings.asrApiKeys.doubao;

@@ -180,38 +180,63 @@ export async function bilibiliVideoHasSubtitle(videoId) {
   }
 }
 
-export async function fetchBilibiliSubtitleTranscript(videoId, cid) {
-  try {
-    const subtitles = await fetchSubtitleTrackList(videoId, cid);
-    // AI subtitles first (most complete & granular), then human CC tracks,
-    // then whatever exists.
-    const preferred =
-      subtitles.find((item) => item?.lan === "ai-zh") ||
-      subtitles.find((item) => /zh/i.test(item.lan || "")) ||
-      subtitles[0];
-    if (!preferred?.subtitle_url) {
-      return {
-        success: false,
-        error: "SUBTITLE_EMPTY",
-        message:
-          "字幕获取失败：B站连续多次返回空字幕列表（通常是被临时限流，稍后点「重试」即可；若该视频确实没有字幕，可改用语音识别）。",
-      };
-    }
-    const subtitleUrl = preferred.subtitle_url.startsWith("//")
-      ? `https:${preferred.subtitle_url}`
-      : preferred.subtitle_url;
-    const response = await bilibiliFetch(subtitleUrl);
-    if (!response.ok) throw new Error("B 站字幕文件下载失败。");
-    const data = await response.json();
+export async function fetchBilibiliSubtitleTranscript(videoId, cid, expectedDurationSeconds = 0) {
+  // Bilibili's CDN intermittently serves a WRONG video's subtitle file for
+  // the right URL (observed with identical requests from one context
+  // succeeding and another receiving cross-wired content). The only reliable
+  // client-side defense: validate the transcript's span against the video's
+  // real duration and refetch; a mismatched file never reaches the UI.
+  const durationOk = (transcript) => {
+    if (!expectedDurationSeconds || !transcript?.success) return true;
+    const last = transcript.transcript[transcript.transcript.length - 1];
+    const span = last ? last.start + last.duration : 0;
+    return Math.abs(span - expectedDurationSeconds) / expectedDurationSeconds <= 0.3;
+  };
 
-  return normalizeTranscript(
-    (data.body || []).map((chunk) => ({
-      text: String(chunk.content || "").trim(),
-      start: Math.max(0, Number(chunk.from) || 0),
-      end: Math.max(0, Number(chunk.to) || 0),
-    })),
-    { language: preferred.lan || null, source: "bilibili-subtitle" },
-  );
+  try {
+    let lastMismatch = false;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const subtitles = await fetchSubtitleTrackList(videoId, cid);
+      // AI subtitles first (most complete & granular), then human CC tracks,
+      // then whatever exists.
+      const preferred =
+        subtitles.find((item) => item?.lan === "ai-zh") ||
+        subtitles.find((item) => /zh/i.test(item.lan || "")) ||
+        subtitles[0];
+      if (!preferred?.subtitle_url) {
+        return {
+          success: false,
+          error: "SUBTITLE_EMPTY",
+          message:
+            "字幕获取失败：B站连续多次返回空字幕列表（通常是被临时限流，稍后点「重试」即可；若该视频确实没有字幕，可改用语音识别）。",
+        };
+      }
+      const subtitleUrl = preferred.subtitle_url.startsWith("//")
+        ? `https:${preferred.subtitle_url}`
+        : preferred.subtitle_url;
+      const response = await bilibiliFetch(subtitleUrl);
+      if (!response.ok) throw new Error("B 站字幕文件下载失败。");
+      const data = await response.json();
+
+      const transcript = normalizeTranscript(
+        (data.body || []).map((chunk) => ({
+          text: String(chunk.content || "").trim(),
+          start: Math.max(0, Number(chunk.from) || 0),
+          end: Math.max(0, Number(chunk.to) || 0),
+        })),
+        { language: preferred.lan || null, source: "bilibili-subtitle" },
+      );
+      if (durationOk(transcript)) return transcript;
+      lastMismatch = true;
+      await new Promise((resolve) => setTimeout(resolve, 800));
+    }
+    return {
+      success: false,
+      error: "SUBTITLE_MISMATCH",
+      message: lastMismatch
+        ? "字幕校验失败：B站多次返回与视频时长不符的字幕内容（服务端内容错乱），请稍后点「重试」。"
+        : "字幕获取失败。",
+    };
   } catch (error) {
     return { success: false, error: error.message, message: `B 站字幕获取失败：${error.message}` };
   }
