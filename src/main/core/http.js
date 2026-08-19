@@ -56,6 +56,11 @@ function makeResponse(status, headers, bodyBuffer) {
     headers: { get: (name) => headers[name.toLowerCase()] ?? null },
     text: async () => text,
     json: async () => JSON.parse(text),
+    arrayBuffer: async () =>
+      bodyBuffer.buffer.slice(
+        bodyBuffer.byteOffset,
+        bodyBuffer.byteOffset + bodyBuffer.byteLength,
+      ),
   };
 }
 

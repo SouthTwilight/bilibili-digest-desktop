@@ -93,6 +93,17 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate }) 
       if (!transcript.success) {
         throw new Error(transcript.message || "获取字幕失败");
       }
+      // Cache ASR results so the paid transcript survives reopens; the
+      // sidebar, retry flows and future exports all reuse it.
+      if (transcript.source !== "bilibili-subtitle") {
+        const cacheKey = `${item.bvid}@p${item.page || 1}`;
+        const existing = digestCache.load(cacheKey) || {};
+        digestCache.save(cacheKey, {
+          ...existing,
+          transcripts: { ...(existing.transcripts || {}), asr: transcript },
+          sourceOverride: "asr",
+        });
+      }
       const details = await getVideoDetails(item.bvid).catch(() => ({}));
       const video = {
         title: details.title || item.videoTitle || item.title,
