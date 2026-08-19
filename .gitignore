@@ -5,3 +5,4 @@ dist/
 .DS_Store
 tests/tmp-settings.json
 download/
+tmp-subtitles/
