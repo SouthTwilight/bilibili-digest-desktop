@@ -88,7 +88,7 @@ function maskKey(key) {
       <div class="ro-row"><span>豆包 Token</span><b>{{ maskKey(settings.asrApiKeys.doubao) }}</b></div>
       <div class="ro-row"><span>豆包 App ID</span><b>{{ settings.asrDoubaoAppKey || "（未设置）" }}</b></div>
     </template>
-    <div class="ro-row"><span>默认保存目录</span><b class="ro-dir">{{ settings.saveDir || "文档/BilibiliDigest（默认）" }}</b></div>
+    <div class="ro-row"><span>默认保存目录</span><b class="ro-dir" :title="settings.saveDir || ''">{{ settings.saveDir || "文档/BilibiliDigest（默认）" }}</b></div>
     <div class="ro-row"><span>导出并发数</span><b>{{ settings.exportConcurrency }}</b></div>
     <p class="help" style="margin-top: 14px">字幕获取策略：自动获取仅使用 B 站字幕；语音识别需在字幕页手动开启（按量计费）。</p>
     <button class="btn" @click="startEditing">编辑</button>

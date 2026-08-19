@@ -242,8 +242,8 @@ html {
 .readonly-list { display: flex; flex-direction: column; gap: 4px; }
 .ro-row { display: flex; justify-content: space-between; gap: 12px; padding: 9px 2px; border-bottom: 1px dashed var(--line); font-size: 13px; }
 .ro-row span { color: var(--muted); flex: 0 0 auto; }
-.ro-row b { font-weight: 600; text-align: right; word-break: break-all; }
-.ro-dir { max-width: 210px; }
+.ro-row b { font-weight: 600; text-align: right; }
+.ro-dir { max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; direction: rtl; text-align: left; }
 
 .btn.small { padding: 5px 12px; font-size: 12px; margin-left: 8px; vertical-align: middle; }
 
