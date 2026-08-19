@@ -361,9 +361,9 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
   });
 
   // Open a library file with the OS default application (Typora for .md etc).
-  ipcMain.handle("library:open", (_event, filePath) => {
-    shell.openPath(filePath);
-    return { success: true };
+  ipcMain.handle("library:open", async (_event, { filePath }) => {
+    const result = await shell.openPath(filePath);
+    return result ? { success: false, error: result } : { success: true };
   });
 
   // Summarize a library markdown document with the configured text model and
