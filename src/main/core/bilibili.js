@@ -19,6 +19,13 @@ const WBI_MIXIN_TABLE = [
 let wbiKeys = null;
 let wbiKeysFetchedAt = 0;
 
+// Optional CDP/page-context fallback for subtitle retrieval. Set by the
+// Electron main process when the browser view is available.
+let subtitleFallback = null;
+export function initSubtitleFallback(fn) {
+  subtitleFallback = fn;
+}
+
 function md5Hex(text) {
   return createHash("md5").update(text, "utf8").digest("hex");
 }
@@ -180,7 +187,7 @@ export async function bilibiliVideoHasSubtitle(videoId) {
   }
 }
 
-export async function fetchBilibiliSubtitleTranscript(videoId, cid) {
+async function fetchDirectSubtitleTranscript(videoId, cid) {
   try {
     const subtitles = await fetchSubtitleTrackList(videoId, cid);
     // AI subtitles first (most complete & granular), then human CC tracks,
@@ -204,17 +211,33 @@ export async function fetchBilibiliSubtitleTranscript(videoId, cid) {
     if (!response.ok) throw new Error("B 站字幕文件下载失败。");
     const data = await response.json();
 
-  return normalizeTranscript(
-    (data.body || []).map((chunk) => ({
-      text: String(chunk.content || "").trim(),
-      start: Math.max(0, Number(chunk.from) || 0),
-      end: Math.max(0, Number(chunk.to) || 0),
-    })),
-    { language: preferred.lan || null, source: "bilibili-subtitle" },
-  );
+    return normalizeTranscript(
+      (data.body || []).map((chunk) => ({
+        text: String(chunk.content || "").trim(),
+        start: Math.max(0, Number(chunk.from) || 0),
+        end: Math.max(0, Number(chunk.to) || 0),
+      })),
+      { language: preferred.lan || null, source: "bilibili-subtitle" },
+    );
   } catch (error) {
     return { success: false, error: error.message, message: `B 站字幕获取失败：${error.message}` };
   }
+}
+
+export async function fetchBilibiliSubtitleTranscript(videoId, cid) {
+  const direct = await fetchDirectSubtitleTranscript(videoId, cid);
+  if (direct.success || !subtitleFallback) return direct;
+
+  // Direct request failed (rate limited / empty list / download error). Try
+  // the CDP fallback which captures the subtitle file the embedded player
+  // actually loads. Keep the direct failure if the fallback also fails.
+  try {
+    const fallback = await subtitleFallback(videoId, cid);
+    if (fallback?.success) return fallback;
+  } catch (error) {
+    // Fallback errors are informational; keep the original direct error.
+  }
+  return direct;
 }
 
 // Debug helper: walk the Bilibili subtitle chain step by step and return the

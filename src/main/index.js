@@ -6,7 +6,8 @@ import { createDigestCache } from "./core/digest-cache.js";
 import { createNotesStore } from "./core/notes.js";
 import { createExportQueue } from "./core/export-queue.js";
 import { initBilibiliHttp } from "./core/http.js";
-import { parseVideoPageUrl } from "./core/bilibili.js";
+import { parseVideoPageUrl, initSubtitleFallback } from "./core/bilibili.js";
+import { createCdpSubtitleFetcher } from "./core/cdp-subtitle.js";
 import { isAllowedUrl } from "./core/url-policy.js";
 
 // Sidebar hosts the Vue app (the window's own page); the browser view fills
@@ -237,6 +238,11 @@ app.whenReady().then(() => {
   });
 
   createWindow();
+
+  // Last-resort subtitle fallback: when the direct Bilibili subtitle chain is
+  // rate-limited, capture the subtitle file the embedded player actually loads
+  // via Chrome DevTools Protocol network events.
+  initSubtitleFallback(createCdpSubtitleFetcher(() => browserView));
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
