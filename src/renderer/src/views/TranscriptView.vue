@@ -190,6 +190,7 @@ async function load(loadMode = "auto") {
   mode.value = "original";
   loading.value = true;
   progress.visible = false;
+  lastLoadMode = loadMode;
   try {
     const result = await window.desktop.getTranscript(
       currentVideo.value.bvid,
@@ -209,6 +210,15 @@ async function load(loadMode = "auto") {
     switching.value = false;
     progress.visible = false;
   }
+}
+
+// Remembers the source of the last attempt so the retry button repeats
+// exactly what the user asked for.
+let lastLoadMode = "auto";
+
+function retryLoad() {
+  if (loading.value) return;
+  void load(lastLoadMode);
 }
 
 watch(
@@ -294,12 +304,14 @@ function seek(seconds) {
 
   <div v-else-if="error" class="error-note">
     {{ error }}
-    <button
-      v-if="asrConfigured && error.includes('没有 B 站字幕')"
-      class="btn"
-      style="margin-top: 10px"
-      @click="switching = true; load('asr')"
-    >改用语音识别</button>
+    <div style="display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap">
+      <button class="btn" @click="retryLoad">重试</button>
+      <button
+        v-if="asrConfigured && lastLoadMode !== 'asr'"
+        class="btn"
+        @click="switching = true; load('asr')"
+      >改用语音识别</button>
+    </div>
   </div>
 
   <div v-else-if="transcript" class="transcript" @mouseup="onTranscriptMouseup">

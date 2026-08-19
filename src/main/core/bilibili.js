@@ -192,8 +192,9 @@ export async function fetchBilibiliSubtitleTranscript(videoId, cid) {
     if (!preferred?.subtitle_url) {
       return {
         success: false,
-        error: "NO_TRANSCRIPT",
-        message: "这个视频没有可用的 B 站字幕。如需语音识别生成，请在下方手动开启。",
+        error: "SUBTITLE_EMPTY",
+        message:
+          "字幕获取失败：B站连续多次返回空字幕列表（通常是被临时限流，稍后点「重试」即可；若该视频确实没有字幕，可改用语音识别）。",
       };
     }
     const subtitleUrl = preferred.subtitle_url.startsWith("//")
