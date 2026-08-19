@@ -218,7 +218,8 @@ let lastLoadMode = "auto";
 
 function retryLoad() {
   if (loading.value) return;
-  void load(lastLoadMode);
+  // B站字幕失败时，重试按钮走用户主动选择的 CDP 兜底；ASR 失败则正常重试 ASR。
+  void load(lastLoadMode === "asr" ? "asr" : "subtitle-cdp");
 }
 
 watch(
@@ -305,7 +306,7 @@ function seek(seconds) {
   <div v-else-if="error" class="error-note">
     {{ error }}
     <div style="display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap">
-      <button class="btn" @click="retryLoad">重试</button>
+      <button class="btn" @click="retryLoad">{{ lastLoadMode === 'asr' ? '重试' : 'CDP 兜底重试' }}</button>
       <button
         v-if="asrConfigured && lastLoadMode !== 'asr'"
         class="btn"

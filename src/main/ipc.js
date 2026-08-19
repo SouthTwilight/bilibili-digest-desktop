@@ -55,6 +55,23 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
     if (wantAsr) sourceOverride = "asr";
     if (wantSubtitle) sourceOverride = "subtitle";
 
+    // Explicit user-triggered CDP fallback: bypass subtitle cache and normal
+    // auto logic, and run only the CDP capture path.
+    if (mode === "subtitle-cdp") {
+      try {
+        const settings = settingsStore.load();
+        return await fetchTranscript({
+          settings,
+          videoId,
+          page: page_,
+          mode: "subtitle-cdp",
+          onProgress: onProgress("transcript"),
+        });
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    }
+
     const persistAsr = (transcript) => {
       digestCache.save(cacheKey, {
         ...cached,

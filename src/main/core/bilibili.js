@@ -225,19 +225,28 @@ async function fetchDirectSubtitleTranscript(videoId, cid) {
 }
 
 export async function fetchBilibiliSubtitleTranscript(videoId, cid) {
-  const direct = await fetchDirectSubtitleTranscript(videoId, cid);
-  if (direct.success || !subtitleFallback) return direct;
+  return fetchDirectSubtitleTranscript(videoId, cid);
+}
 
-  // Direct request failed (rate limited / empty list / download error). Try
-  // the CDP fallback which captures the subtitle file the embedded player
-  // actually loads. Keep the direct failure if the fallback also fails.
-  try {
-    const fallback = await subtitleFallback(videoId, cid);
-    if (fallback?.success) return fallback;
-  } catch (error) {
-    // Fallback errors are informational; keep the original direct error.
+// Explicit CDP fallback, triggered only by user action (e.g. the retry button
+// after a direct subtitle failure). Never runs automatically.
+export async function fetchBilibiliSubtitleTranscriptViaCdp(videoId, cid) {
+  if (!subtitleFallback) {
+    return {
+      success: false,
+      error: "CDP_UNAVAILABLE",
+      message: "CDP 兜底未启用（应用内浏览器视图不可用）。",
+    };
   }
-  return direct;
+  try {
+    return await subtitleFallback(videoId, cid);
+  } catch (error) {
+    return {
+      success: false,
+      error: "CDP_ERROR",
+      message: `CDP 兜底失败：${error.message}`,
+    };
+  }
 }
 
 // Debug helper: walk the Bilibili subtitle chain step by step and return the
