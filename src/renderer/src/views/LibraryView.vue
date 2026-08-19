@@ -19,6 +19,11 @@ function toggle(node) {
 }
 
 async function openFile(file) {
+  // Picture folders open in Explorer directly — no in-app preview.
+  if (file.kind === "picture-dir") {
+    window.desktop.libraryReveal(file.path);
+    return;
+  }
   const result = await window.desktop.libraryRead(file.path);
   if (result.success) {
     preview.value = { kind: result.kind, name: result.name, content: result.content, path: file.path };
@@ -72,7 +77,7 @@ function fmtSize(bytes) {
 }
 
 function kindIcon(kind) {
-  return kind === "md" ? "📄" : kind === "html" ? "🌐" : kind === "notes" ? "📝" : "📁";
+  return kind === "md" ? "📄" : kind === "html" ? "🌐" : kind === "notes" ? "📝" : kind === "picture-dir" ? "🖼️" : "📁";
 }
 
 // Minimal Markdown rendering for preview: headings, bold, quotes, list items

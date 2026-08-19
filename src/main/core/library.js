@@ -29,8 +29,9 @@ function scanLibrary(saveDir) {
     } catch {
       return null;
     }
-    // Picture files live in a `picture/` subfolder alongside the video's
-    // documents; surface them as files rather than a nested "video" node.
+    // Documents (md/html/notes.json) show as files; the `picture/`
+    // subfolder collapses to a single folder entry — users who want the
+    // screenshots can open it in Explorer.
     const files = [];
     for (const entry of entries) {
       if (entry.isFile()) {
@@ -38,8 +39,15 @@ function scanLibrary(saveDir) {
       } else if (entry.isDirectory() && entry.name === "picture") {
         const picDir = join(dir, "picture");
         try {
-          for (const pic of readdirSync(picDir)) {
-            files.push(fileEntry(pic, picDir));
+          const pics = readdirSync(picDir);
+          if (pics.length) {
+            files.push({
+              name: `picture (${pics.length} 张截图)`,
+              path: picDir,
+              type: "file",
+              kind: "picture-dir",
+              size: 0,
+            });
           }
         } catch {
           // Unreadable picture folder is non-fatal.
