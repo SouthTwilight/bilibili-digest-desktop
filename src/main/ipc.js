@@ -42,7 +42,7 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
   //   - ASR transcripts ARE cached (transcripts.asr slot) — recognition is
   //     slow and billed, so it must survive reopens. A user's explicit ASR
   //     choice is stored as `sourceOverride` and survives auto-reloads.
-  ipcMain.handle("transcript:get", async (_event, { videoId, page, mode }) => {
+  ipcMain.handle("transcript:get", async (_event, { videoId, page, mode, track }) => {
     const page_ = Math.max(1, Number(page) || 1);
     const cacheKey = `${videoId}@p${page_}`;
     const cached = digestCache.load(cacheKey) || {};
@@ -88,6 +88,7 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
         videoId,
         page: page_,
         mode: wantAsr ? "asr" : "subtitle",
+        track: track === "cc" ? "cc" : "ai",
         onProgress: onProgress("transcript"),
       });
       if (transcript.success) {

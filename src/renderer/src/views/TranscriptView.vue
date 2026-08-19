@@ -182,8 +182,13 @@ function switchMode(next) {
 }
 
 // --- transcript loading ----------------------------------------------------
-async function load(loadMode = "auto") {
+// lastTrack remembers the AI/native choice so retries repeat it.
+let lastLoadMode = "auto";
+let lastLoadTrack = "ai";
+
+async function load(loadMode = "auto", track = null) {
   if (!currentVideo.value) return;
+  const track_ = track || lastLoadTrack;
   error.value = "";
   transcript.value = null;
   translations.value = {};
@@ -191,11 +196,13 @@ async function load(loadMode = "auto") {
   loading.value = true;
   progress.visible = false;
   lastLoadMode = loadMode;
+  lastLoadTrack = track_;
   try {
     const result = await window.desktop.getTranscript(
       currentVideo.value.bvid,
       currentVideo.value.page,
       loadMode,
+      track_,
     );
     if (!result.success) {
       error.value = result.message || result.error || "获取字幕失败";
@@ -212,13 +219,9 @@ async function load(loadMode = "auto") {
   }
 }
 
-// Remembers the source of the last attempt so the retry button repeats
-// exactly what the user asked for.
-let lastLoadMode = "auto";
-
 function retryLoad() {
   if (loading.value) return;
-  void load(lastLoadMode);
+  void load(lastLoadMode, lastLoadTrack);
 }
 
 watch(
@@ -310,22 +313,26 @@ function seek(seconds) {
         v-if="asrConfigured && lastLoadMode !== 'asr'"
         class="btn"
         @click="switching = true; load('asr')"
-      >改用语音识别</button>
+      >语音识别字幕</button>
     </div>
   </div>
 
   <div v-else-if="transcript" class="transcript" @mouseup="onTranscriptMouseup">
     <div class="transcript-meta">
-      来源：{{ transcript.source === "bilibili-subtitle" ? "B站字幕" : transcript.source === "aliyun-fun-asr" ? "百炼语音识别" : "豆包语音识别" }} ·
+      来源：{{ transcript.source === "bilibili-subtitle" ? (transcript.language === 'ai-zh' ? 'B站字幕·AI' : 'B站字幕·原生') : transcript.source === "aliyun-fun-asr" ? "百炼语音识别" : "豆包语音识别" }} ·
       {{ transcript.transcript.length }} 条
+      <template v-if="transcript.source === 'bilibili-subtitle'">
+        <button class="mode-btn tiny" :class="{ active: transcript.language !== 'ai-zh' }" :disabled="switching" @click="switching = true; load('subtitle', 'cc')">原生字幕</button>
+        <button class="mode-btn tiny" :class="{ active: transcript.language === 'ai-zh' }" :disabled="switching" @click="switching = true; load('subtitle', 'ai')">AI字幕</button>
+        <button
+          v-if="asrConfigured"
+          class="btn ghost small"
+          :disabled="switching"
+          @click="switching = true; load('asr')"
+        >{{ switching ? "转写中…" : "语音识别字幕" }}</button>
+      </template>
       <button
-        v-if="transcript.source === 'bilibili-subtitle' && asrConfigured"
-        class="btn ghost small"
-        :disabled="switching"
-        @click="switching = true; load('asr')"
-      >{{ switching ? "转写中…" : "改用语音识别" }}</button>
-      <button
-        v-else-if="transcript.source !== 'bilibili-subtitle'"
+        v-else
         class="btn ghost small"
         :disabled="switching"
         @click="switching = true; load('subtitle')"
@@ -344,8 +351,8 @@ function seek(seconds) {
         <option value="md">Markdown</option>
         <option value="html">HTML 网页</option>
       </select>
-      <button class="btn ghost small" @click="exportSingleNow">导出本视频</button>
-      <button v-if="collectionInfo" class="btn small" @click="openCollectionExport">导出整个合集（{{ collectionInfo.videoCount }} 个）</button>
+      <button class="btn ghost small" @click="exportSingleNow">导出当前字幕</button>
+      <button v-if="collectionInfo" class="btn small" @click="openCollectionExport">导出合集</button>
     </div>
 
     <!-- original mode: per-line, clickable timestamps -->

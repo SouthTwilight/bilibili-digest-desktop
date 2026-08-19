@@ -198,7 +198,25 @@ export async function bilibiliVideoHasSubtitle(videoId) {
   }
 }
 
-export async function fetchBilibiliSubtitleTranscript(videoId, aid, cid, expectedDurationSeconds = 0) {
+function pickSubtitleTrack(subtitles, trackPref) {
+  if (trackPref === "cc") {
+    // Human-uploaded CC tracks first, AI as fallback.
+    return (
+      subtitles.find((item) => /zh/i.test(item?.lan || "") && item?.lan !== "ai-zh") ||
+      subtitles.find((item) => item?.lan === "ai-zh") ||
+      subtitles[0]
+    );
+  }
+  // AI subtitles first (most complete & granular), then human CC tracks,
+  // then whatever exists.
+  return (
+    subtitles.find((item) => item?.lan === "ai-zh") ||
+    subtitles.find((item) => /zh/i.test(item.lan || "")) ||
+    subtitles[0]
+  );
+}
+
+export async function fetchBilibiliSubtitleTranscript(videoId, aid, cid, expectedDurationSeconds = 0, trackPref = "ai") {
   // Bilibili's CDN intermittently serves a WRONG video's subtitle file for
   // the right URL (observed with identical requests from one context
   // succeeding and another receiving cross-wired content). The only reliable
@@ -215,12 +233,7 @@ export async function fetchBilibiliSubtitleTranscript(videoId, aid, cid, expecte
     let lastMismatch = false;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const subtitles = await fetchSubtitleTrackList(aid, cid);
-      // AI subtitles first (most complete & granular), then human CC tracks,
-      // then whatever exists.
-      const preferred =
-        subtitles.find((item) => item?.lan === "ai-zh") ||
-        subtitles.find((item) => /zh/i.test(item.lan || "")) ||
-        subtitles[0];
+      const preferred = pickSubtitleTrack(subtitles, trackPref);
       if (!preferred?.subtitle_url) {
         return {
           success: false,
