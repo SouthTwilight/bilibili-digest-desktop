@@ -19,13 +19,6 @@ const WBI_MIXIN_TABLE = [
 let wbiKeys = null;
 let wbiKeysFetchedAt = 0;
 
-// Optional CDP/page-context fallback for subtitle retrieval. Set by the
-// Electron main process when the browser view is available.
-let subtitleFallback = null;
-export function initSubtitleFallback(fn) {
-  subtitleFallback = fn;
-}
-
 function md5Hex(text) {
   return createHash("md5").update(text, "utf8").digest("hex");
 }
@@ -187,7 +180,7 @@ export async function bilibiliVideoHasSubtitle(videoId) {
   }
 }
 
-async function fetchDirectSubtitleTranscript(videoId, cid) {
+export async function fetchBilibiliSubtitleTranscript(videoId, cid) {
   try {
     const subtitles = await fetchSubtitleTrackList(videoId, cid);
     // AI subtitles first (most complete & granular), then human CC tracks,
@@ -211,154 +204,16 @@ async function fetchDirectSubtitleTranscript(videoId, cid) {
     if (!response.ok) throw new Error("B 站字幕文件下载失败。");
     const data = await response.json();
 
-    return normalizeTranscript(
-      (data.body || []).map((chunk) => ({
-        text: String(chunk.content || "").trim(),
-        start: Math.max(0, Number(chunk.from) || 0),
-        end: Math.max(0, Number(chunk.to) || 0),
-      })),
-      { language: preferred.lan || null, source: "bilibili-subtitle" },
-    );
+  return normalizeTranscript(
+    (data.body || []).map((chunk) => ({
+      text: String(chunk.content || "").trim(),
+      start: Math.max(0, Number(chunk.from) || 0),
+      end: Math.max(0, Number(chunk.to) || 0),
+    })),
+    { language: preferred.lan || null, source: "bilibili-subtitle" },
+  );
   } catch (error) {
     return { success: false, error: error.message, message: `B 站字幕获取失败：${error.message}` };
-  }
-}
-
-export async function fetchBilibiliSubtitleTranscript(videoId, cid) {
-  return fetchDirectSubtitleTranscript(videoId, cid);
-}
-
-// Explicit CDP fallback, triggered only by user action (e.g. the retry button
-// after a direct subtitle failure). Never runs automatically.
-export async function fetchBilibiliSubtitleTranscriptViaCdp(videoId, cid) {
-  if (!subtitleFallback) {
-    return {
-      success: false,
-      error: "CDP_UNAVAILABLE",
-      message: "CDP 兜底未启用（应用内浏览器视图不可用）。",
-    };
-  }
-  try {
-    return await subtitleFallback(videoId, cid);
-  } catch (error) {
-    return {
-      success: false,
-      error: "CDP_ERROR",
-      message: `CDP 兜底失败：${error.message}`,
-    };
-  }
-}
-
-// Debug helper: walk the Bilibili subtitle chain step by step and return the
-// request/response at each layer. Used by scripts/debug-subtitle-server.mjs.
-export async function debugFetchSubtitleChain(videoId, page = 1) {
-  const page_ = Math.max(1, Number(page) || 1);
-  const steps = [];
-  const record = (name, ok, data) => steps.push({ name, ok, ...data });
-
-  try {
-    // 1. Video view -> cid
-    const viewUrl = `https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(videoId)}`;
-    const viewResponse = await bilibiliFetch(viewUrl);
-    const viewPayload = await viewResponse.json();
-    const viewOk = viewResponse.ok && viewPayload?.code === 0 && !!viewPayload?.data;
-    record("view", viewOk, {
-      url: viewUrl,
-      status: viewResponse.status,
-      code: viewPayload?.code,
-      message: viewPayload?.message,
-      title: viewPayload?.data?.title,
-      pageCount: viewPayload?.data?.pages?.length || 0,
-      raw: viewPayload,
-    });
-    if (!viewOk) throw new Error(viewPayload?.message || "无法读取 B 站视频信息。");
-    const view = viewPayload.data;
-    const cid = resolvePageCid(view, page_);
-
-    // 2. Subtitle track list (player/v2, wbi signed)
-    const listRawUrl = `https://api.bilibili.com/x/player/v2?bvid=${encodeURIComponent(videoId)}&cid=${cid}`;
-    const listUrl = await wbiSignedUrl(listRawUrl);
-    const listResponse = await bilibiliFetch(listUrl);
-    const listPayload = await listResponse.json();
-    const subtitles = listPayload?.data?.subtitle?.subtitles || [];
-    const listOk = listResponse.ok && listPayload?.code === 0;
-    record("subtitle-list", listOk, {
-      url: listUrl,
-      status: listResponse.status,
-      code: listPayload?.code,
-      message: listPayload?.message,
-      cid,
-      subtitleCount: subtitles.length,
-      subtitles: subtitles.map((item) => ({
-        lan: item?.lan,
-        lan_doc: item?.lan_doc,
-        subtitle_url: item?.subtitle_url,
-      })),
-      raw: listPayload,
-    });
-    if (!listOk) throw new Error(listPayload?.message || "无法读取 B 站字幕列表。");
-
-    // 3. Selected subtitle track
-    const preferred =
-      subtitles.find((item) => item?.lan === "ai-zh") ||
-      subtitles.find((item) => /zh/i.test(item?.lan || "")) ||
-      subtitles[0];
-    record("selected-track", !!preferred?.subtitle_url, {
-      track: preferred
-        ? { lan: preferred.lan, lan_doc: preferred.lan_doc, subtitle_url: preferred.subtitle_url }
-        : null,
-      raw: preferred || null,
-    });
-    if (!preferred?.subtitle_url) {
-      return { success: false, steps };
-    }
-
-    // 4. Download subtitle JSON file
-    const fileUrl = preferred.subtitle_url.startsWith("//")
-      ? `https:${preferred.subtitle_url}`
-      : preferred.subtitle_url;
-    const fileResponse = await bilibiliFetch(fileUrl);
-    const fileText = await fileResponse.text();
-    let filePayload = null;
-    let parseError = null;
-    try {
-      filePayload = JSON.parse(fileText);
-    } catch (error) {
-      parseError = error.message;
-    }
-    const body = filePayload?.body || [];
-    record("subtitle-file", fileResponse.ok && !!filePayload, {
-      url: fileUrl,
-      status: fileResponse.status,
-      contentType: fileResponse.headers.get("content-type"),
-      bytes: fileText.length,
-      parseError,
-      bodyCount: body.length,
-      bodyPreview: fileText.slice(0, 2000),
-      raw: filePayload,
-    });
-    if (!fileResponse.ok || !filePayload) {
-      throw new Error(parseError || `B 站字幕文件下载失败（HTTP ${fileResponse.status}）。`);
-    }
-
-    // 5. Normalize into transcript lines
-    const normalized = normalizeTranscript(
-      body.map((chunk) => ({
-        text: String(chunk?.content || "").trim(),
-        start: Math.max(0, Number(chunk?.from) || 0),
-        end: Math.max(0, Number(chunk?.to) || 0),
-      })),
-      { language: preferred.lan || null, source: "bilibili-subtitle" },
-    );
-    record("normalize", normalized.success, {
-      transcriptCount: normalized.transcript?.length || 0,
-      preview: normalized.transcript?.slice(0, 5) || [],
-      raw: normalized,
-    });
-    return { success: normalized.success, steps };
-  } catch (error) {
-    steps.push({ name: "error", ok: false, error: error.message });
-    return { success: false, steps };
   }
 }
 

@@ -122,23 +122,7 @@ npm install          # 已内置 npmmirror 镜像（.npmrc）
 npm test             # 单元测试（node:test）
 npm run dev          # 开发模式（HMR）
 npm run package      # 构建并打包 NSIS 安装程序到 dist/
-npm run debug:subtitle  # 启动 B 站字幕链路调试页（http://127.0.0.1:8790）
 ```
-
-## 调试 B 站字幕链路
-
-```bash
-npm run debug:subtitle
-# 浏览器打开 http://127.0.0.1:8790
-```
-
-在页面输入 BVID、分 P 和可选 Cookie（例如 `SESSDATA=xxx; bili_jct=xxx`），点击「执行调试」即可逐步查看：
-
-1. 视频信息接口（view）→ 得到 cid
-2. 字幕列表接口（player/v2，wbi 签名）→ 得到字幕轨
-3. 选中的字幕轨
-4. 字幕 JSON 文件下载
-5. 标准化后的字幕行
 
 ## 技术栈与架构
 
@@ -168,8 +152,7 @@ Electron（主进程 Node）+ Vue 3 + Vite（侧边栏）+ electron-builder（NS
 ## 已知注意事项
 
 - 豆包语音识别有并发配额，导出队列对 ASR 任务严格串行并在限流时提示
-- B 站个别接口对高频调用限流（返回空字幕列表），主进程已做 wbi 签名 + 空列表短延迟重试 3 次
-- 直接字幕链路失败后，用户可点击「CDP 兜底重试」手动触发 CDP 监听播放器实际加载的字幕文件；不会自动执行，也不会自动跳走用户页面
+- B 站个别接口对高频调用限流（返回空字幕列表），主进程已做 wbi 签名 + 页面上下文降级重试
 - 语音识别按量计费（百炼 ≈0.79 元/小时，豆包 ≈4.5 元/小时），有 B 站字幕的视频始终零成本
 
 ## License

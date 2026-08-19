@@ -2,7 +2,6 @@ import {
   fetchBilibiliView,
   resolvePageCid,
   fetchBilibiliSubtitleTranscript,
-  fetchBilibiliSubtitleTranscriptViaCdp,
 } from "./bilibili.js";
 import { transcribeWithBailian } from "./asr-bailian.js";
 import { transcribeWithDoubao } from "./asr-doubao.js";
@@ -15,10 +14,6 @@ import { transcribeWithDoubao } from "./asr-doubao.js";
 export async function fetchTranscript({ settings, videoId, page = 1, mode = "auto", onProgress }) {
   const view = await fetchBilibiliView(videoId);
   const cid = resolvePageCid(view, page);
-
-  if (mode === "subtitle-cdp") {
-    return fetchBilibiliSubtitleTranscriptViaCdp(videoId, cid);
-  }
 
   if (mode !== "asr") {
     return fetchBilibiliSubtitleTranscript(videoId, cid);
