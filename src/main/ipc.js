@@ -256,9 +256,15 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
 
   // ---- export queue / library ---------------------------------------------
 
-  ipcMain.handle("export:single", (_event, { bvid, page, format, sourceMode }) => {
+  // Single-video export keeps collection context: a video that belongs to a
+  // collection ALWAYS lands in {saveDir}/{合集名}/{视频名_BV号}/ — the same
+  // layout the collection export writes — so the library never shows the
+  // same video in two places depending on which button exported it.
+  ipcMain.handle("export:single", async (_event, { bvid, page, format, sourceMode }) => {
+    const info = await getCollectionInfo(bvid).catch(() => null);
     return exportQueue.enqueue({
       type: "single",
+      collectionTitle: info?.inCollection ? info.collectionTitle : "",
       format: format === "html" ? "html" : "md",
       items: [{ bvid, page: page || 1, sourceMode: sourceMode || "subtitle" }],
     });
