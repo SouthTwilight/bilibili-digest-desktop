@@ -49,6 +49,24 @@ export function createNotesStore({ saveDirResolver, legacyPath }) {
       : join(base, videoDir, "notes.json");
   }
 
+  // The video's own folder (for exports, pictures, summaries).
+  function videoDir({ collectionTitle, videoTitle, bvid }) {
+    const base = saveDirResolver() || ".";
+    const dir = videoFolderName(videoTitle, bvid);
+    return collectionTitle
+      ? join(base, sanitizeDirName(collectionTitle) || "合集", dir)
+      : join(base, dir);
+  }
+
+  function savePicture(dir, imageBase64, noteId, timestamp) {
+    const pictureDir = join(dir, "picture");
+    mkdirSync(pictureDir, { recursive: true });
+    const stamp = `${String(Math.floor(timestamp / 60)).padStart(2, "0")}-${String(timestamp % 60).padStart(2, "0")}`;
+    const file = `${stamp}_${noteId.slice(0, 8)}.jpg`;
+    writeFileSync(join(pictureDir, file), Buffer.from(imageBase64, "base64"));
+    return `picture/${file}`;
+  }
+
   function readFile(file) {
     try {
       const data = JSON.parse(readFileSync(file, "utf8"));
@@ -69,10 +87,12 @@ export function createNotesStore({ saveDirResolver, legacyPath }) {
   let legacyPending = migratedLegacyNotes();
 
   return {
-    add({ bvid, timestamp, text, videoTitle, channelName, collectionTitle }) {
+    videoDir,
+
+    add({ bvid, timestamp, text, videoTitle, channelName, collectionTitle, imageBase64 }) {
       const file = storeFile({ collectionTitle, videoTitle, bvid });
       const notes = readFile(file);
-      notes.push({
+      const note = {
         id: randomUUID(),
         videoId: `${bvid}@p1`,
         bvid,
@@ -81,10 +101,24 @@ export function createNotesStore({ saveDirResolver, legacyPath }) {
         videoTitle: String(videoTitle || ""),
         channelName: String(channelName || ""),
         collectionTitle: String(collectionTitle || ""),
+        picture: null,
         createdAt: Date.now(),
-      });
+      };
+      if (imageBase64) {
+        try {
+          note.picture = savePicture(
+            videoDir({ collectionTitle, videoTitle, bvid }),
+            imageBase64,
+            note.id,
+            note.timestamp,
+          );
+        } catch {
+          // A failed screenshot must never block the note itself.
+        }
+      }
+      notes.push(note);
       writeFile(file, notes);
-      return notes[notes.length - 1];
+      return note;
     },
 
     listFor({ bvid, videoTitle, collectionTitle }) {

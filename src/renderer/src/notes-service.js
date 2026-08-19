@@ -60,14 +60,22 @@ export async function takeNoteAt(seconds) {
         text = polished.text || target.text;
   } catch {}
 
-    const context = await videoNoteContext();
-    await window.desktop.addNote({
+  const context = await videoNoteContext();
+  // Screenshot the playing frame first; the image joins the note as a
+  // picture/ file in the video folder.
+  let imageBase64 = null;
+  try {
+    const shot = await window.desktop.captureFrame();
+    if (shot?.success) imageBase64 = shot.imageBase64;
+  } catch {}
+  await window.desktop.addNote({
     bvid: currentVideo.value.bvid,
     timestamp: seconds,
     text,
     videoTitle: context?.videoTitle || "",
     channelName: videoDetails.value?.channelName || "",
     collectionTitle: context?.collectionTitle || "",
+    imageBase64,
   });
     return { ok: true, timestamp: seconds };
 }

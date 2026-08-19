@@ -1,10 +1,13 @@
 import { ipcMain, dialog, shell, BrowserWindow } from "electron";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { join, dirname, basename, extname } from "node:path";
 import { fetchTranscript } from "./core/transcript-service.js";
 import { getVideoDetails, getCollectionInfo, collectionVideosFromView, fetchBilibiliView } from "./core/bilibili.js";
-import { analyzeTranscript } from "./core/ai.js";
+import { analyzeTranscript, requestAiCompletion, loadPromptSection } from "./core/ai.js";
 import { translateTranscriptBatch } from "./core/translation.js";
 import { explainSelection, cleanupNoteText } from "./core/explain.js";
 import { scanLibrary, readLibraryFile } from "./core/library.js";
+import { exportFileName } from "./core/export-render.js";
 
 function pushProgress(payload) {
   BrowserWindow.getAllWindows()[0]?.webContents.send("digest:progress", payload);
@@ -229,6 +232,62 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
   ipcMain.handle("notes:add", (_event, note) => notesStore.add(note || {}));
   ipcMain.handle("notes:delete", (_event, id) => notesStore.remove(id));
 
+  // Capture the currently playing video frame as a JPEG base64. Canvas first
+  // (clean frame, no player UI); falls back to capturing the video element's
+  // page rect when the canvas is tainted.
+  ipcMain.handle("video:capture-frame", async () => {
+    const view = getBrowserView();
+    if (!view) return { success: false };
+    const wc = view.webContents;
+    try {
+      const canvasData = await wc.executeJavaScript(`(() => {
+        const v = document.querySelector('video');
+        if (!v || !v.videoWidth) return null;
+        const c = document.createElement('canvas');
+        c.width = v.videoWidth; c.height = v.videoHeight;
+        c.getContext('2d').drawImage(v, 0, 0);
+        try { return c.toDataURL('image/jpeg', 0.85); } catch { return null; }
+      })()`);
+      if (canvasData) return { success: true, imageBase64: canvasData.split(",")[1] };
+      const rect = await wc.executeJavaScript(`(() => {
+        const v = document.querySelector('video');
+        if (!v) return null;
+        const r = v.getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height };
+      })()`);
+      if (!rect) return { success: false };
+      const image = await wc.capturePage(rect);
+      return { success: true, imageBase64: image.toDataURL().split(",")[1] };
+    } catch {
+      return { success: false };
+    }
+  });
+
+  // Compile a video's notes (with picture links) into a markdown document
+  // inside the video folder.
+  ipcMain.handle("notes:export", (_event, video) => {
+    try {
+      const notes = notesStore.listFor(video || {});
+      if (!notes.length) return { success: false, error: "当前视频还没有笔记。" };
+      const dir = notesStore.videoDir(video || {});
+      const lines = [`# ${(video?.videoTitle || "视频") + " 学习笔记"}`, ""];
+      for (const note of notes.slice().sort((a, b) => a.timestamp - b.timestamp)) {
+        const mm = String(Math.floor(note.timestamp / 60)).padStart(2, "0");
+        const ss = String(note.timestamp % 60).padStart(2, "0");
+        const url = `https://www.bilibili.com/video/${note.bvid}/?t=${note.timestamp}s`;
+        lines.push(`- [${mm}:${ss}](${url}) ${note.text}`);
+        if (note.picture) lines.push(`  ![](${note.picture})`);
+      }
+      lines.push("", "---", "由 Bilibili Digest 桌面版整理");
+      const file = join(dir, `笔记_${exportFileName(video?.videoTitle || "")}.md`);
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, lines.join("\n"), "utf8");
+      return { success: true, file };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
   // Polish a note's transcript excerpt into a clean sentence (best-effort).
   ipcMain.handle("notes:polish", (_event, payload) => {
     const settings = settingsStore.load();
@@ -293,6 +352,47 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
   ipcMain.handle("library:reveal", (_event, filePath) => {
     shell.showItemInFolder(filePath);
     return { success: true };
+  });
+
+  // Open a library file with the OS default application (Typora for .md etc).
+  ipcMain.handle("library:open", (_event, filePath) => {
+    shell.openPath(filePath);
+    return { success: true };
+  });
+
+  // Summarize a library markdown document with the configured text model and
+  // store the result next to it as AI总结_视频名.md.
+  ipcMain.handle("library:summarize", async (_event, { filePath }) => {
+    const base = settingsStore.load().saveDir;
+    if (!String(filePath || "").startsWith(String(base || "\u0000"))) {
+      return { success: false, error: "文件不在当前保存目录内。" };
+    }
+    try {
+      const content = readFileSync(filePath, "utf8");
+      const titleMatch = content.match(/^#\s+(.+)$/m);
+      const videoName = (titleMatch?.[1] || basename(filePath, extname(filePath)))
+        .replace(/[_-]\d{4}-\d{2}-\d{2}_\d{2}-\d{2}$/, "")
+        .slice(0, 60);
+      const settings = settingsStore.load();
+      pushProgress({ phase: "summary", title: "正在生成 AI 总结", subtitle: "长文档需要一两分钟" });
+      const systemPrompt = loadPromptSection("summary.md", "System prompt", {
+        title: videoName,
+        content: content.slice(0, 120_000),
+      });
+      const text = await requestAiCompletion({
+        settings,
+        maxTokens: 8192,
+        messages: [{ role: "user", content: systemPrompt }],
+      });
+      const outFile = join(dirname(filePath), `AI总结_${videoName}.md`);
+      writeFileSync(outFile, text.trim() + "\n", "utf8");
+      return { success: true, file: outFile };
+    } catch (error) {
+      if (error.code === "NO_AI_KEY") {
+        return { success: false, error: "未配置文本模型 API Key，请先到设置页填写。" };
+      }
+      return { success: false, error: error.message };
+    }
   });
 
   // Hide/show the embedded browser view while an app-level modal is open.

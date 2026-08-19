@@ -31,6 +31,40 @@ function reveal(path) {
   window.desktop.libraryReveal(path);
 }
 
+function openWithDefaultApp(path) {
+  window.desktop.openWithDefaultApp(path);
+}
+
+const summarizing = ref(false);
+const summarizeStatus = ref("");
+
+async function summarizeDoc() {
+  if (summarizing.value || !preview.value) return;
+  // Only markdown documents make sense to summarize.
+  if (preview.value.kind !== "md" && !preview.value.name.endsWith(".md")) {
+    summarizeStatus.value = "仅支持 Markdown 文件";
+    setTimeout(() => (summarizeStatus.value = ""), 2000);
+    return;
+  }
+  summarizing.value = true;
+  summarizeStatus.value = "总结中…";
+  try {
+    const result = await window.desktop.summarizeDoc(preview.value.path);
+    if (result.success) {
+      summarizeStatus.value = "✓ 已生成 AI 总结";
+      await refresh();
+      // Auto-open the summary for immediate feedback.
+      const relative = result.file;
+      openWithDefaultApp(relative);
+    } else {
+      summarizeStatus.value = `⚠️ ${result.error || "总结失败"}`;
+    }
+  } finally {
+    summarizing.value = false;
+    setTimeout(() => (summarizeStatus.value = ""), 3500);
+  }
+}
+
 function fmtSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -150,7 +184,10 @@ function prettyNotes(content) {
     <div class="library-preview" v-if="preview">
       <div class="preview-head">
         <span>{{ preview.name }}</span>
-        <button class="btn ghost small" @click="reveal(preview.path)">在文件夹中显示</button>
+        <span v-if="summarizeStatus" class="summarize-status">{{ summarizeStatus }}</span>
+        <button class="btn ghost small" @click="summarizeDoc" :disabled="summarizing">AI总结</button>
+        <button class="btn ghost small" @click="openWithDefaultApp(preview.path)">默认应用</button>
+        <button class="btn ghost small" @click="reveal(preview.path)">资源管理器</button>
         <button class="btn ghost small" @click="preview = null">关闭</button>
       </div>
       <div v-if="preview.kind === 'html'" class="preview-body">

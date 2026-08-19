@@ -42,6 +42,19 @@ async function takeNoteNow() {
   }
 }
 
+async function exportNotes() {
+  if (!currentVideo.value || !notes.value.length) return;
+  saving.value = true;
+  try {
+    const context = await videoNoteContext();
+    const result = await window.desktop.exportNotes(context);
+    toast.value = result.success ? "📄 笔记已整理，见「导出库」" : `⚠️ ${result.error}`;
+  } finally {
+    saving.value = false;
+    setTimeout(() => (toast.value = ""), 2600);
+  }
+}
+
 async function remove(id) {
   await window.desktop.deleteNote(id);
   await refresh();
@@ -66,14 +79,15 @@ function seek(note) {
   <div class="notes-filter">
     <button class="mode-btn" :class="{ active: !showAll }" @click="showAll = false">当前视频</button>
     <button class="mode-btn" :class="{ active: showAll }" @click="showAll = true">全部</button>
-    <button class="btn small" :disabled="saving || !currentVideo" style="margin-left: auto" @click="takeNoteNow">
+    <button class="btn ghost small" :disabled="saving || !notes.length" @click="exportNotes" style="margin-left: auto">整理笔记</button>
+    <button class="btn small" :disabled="saving || !currentVideo" @click="takeNoteNow">
       {{ saving ? "记录中…" : "记下当前时刻" }}
     </button>
   </div>
 
   <div v-if="!notes.length" class="placeholder">
     还没有笔记。视频播放时点上方「记下当前时刻」即可记录：<br />
-    笔记 = 当前时刻的字幕内容（AI 润色成句），保存在默认保存目录的「视频名_BV号」文件夹里，点击时间戳可跳回对应画面。
+    笔记 = 当前时刻字幕（AI 润色成句）+ 播放画面截图，保存在默认保存目录的「视频名_BV号」文件夹；点「整理笔记」可汇总为 MD 文档（含图片），导出库中可见。
   </div>
 
   <div v-for="note in notes" :key="note.id" class="note-item">

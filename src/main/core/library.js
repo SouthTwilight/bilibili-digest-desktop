@@ -29,7 +29,23 @@ function scanLibrary(saveDir) {
     } catch {
       return null;
     }
-    const files = entries.filter((e) => e.isFile()).map((e) => fileEntry(e.name, dir));
+    // Picture files live in a `picture/` subfolder alongside the video's
+    // documents; surface them as files rather than a nested "video" node.
+    const files = [];
+    for (const entry of entries) {
+      if (entry.isFile()) {
+        files.push(fileEntry(entry.name, dir));
+      } else if (entry.isDirectory() && entry.name === "picture") {
+        const picDir = join(dir, "picture");
+        try {
+          for (const pic of readdirSync(picDir)) {
+            files.push(fileEntry(pic, picDir));
+          }
+        } catch {
+          // Unreadable picture folder is non-fatal.
+        }
+      }
+    }
     if (!files.length) return null;
     return { name, path: dir, type: "video", children: files };
   }
