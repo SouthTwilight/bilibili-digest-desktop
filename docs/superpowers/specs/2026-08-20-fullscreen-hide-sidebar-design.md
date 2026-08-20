@@ -85,8 +85,8 @@ Esc 或再次点击全屏按钮退出
 
 ## 测试与验证
 
-- 自动化：`npm test`（现有 node --test 回归，本改动不触碰被测逻辑）；`npm run build` 验证构建。
-- 布局逻辑（Electron API 闭包）不在现有单测覆盖范围，本次不新增自动化测试（与代码库现状一致）。
+- 布局计算抽取为纯函数模块 `src/main/core/layout.js`（`computeViewBounds` + `clampSidebarWidth` + 布局常量），按仓库现有 `node --test` 约定纳入单测 `tests/layout.test.mjs`：全屏铺满分支、正常布局分支、宽度钳制、退化尺寸不出负值。
+- Electron 事件接线部分（index.js）不做自动化测试（无法脱离 Electron 运行时），以 `npm run build` 构建验证 + `npm test` 回归 + 手动清单覆盖。
 - 手动验证清单：
   1. 视频页点「全屏」→ 侧边栏/顶栏消失，视频铺满窗口
   2. Esc 退出 → 侧边栏/顶栏恢复，宽度与进入前一致
