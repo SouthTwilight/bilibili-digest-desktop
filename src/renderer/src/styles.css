@@ -341,6 +341,12 @@ html {
 .onboarding-dir-path { flex: 1; font-size: 12.5px; color: var(--muted); background: var(--surface-soft); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; word-break: break-all; }
 .onboarding-actions { display: flex; justify-content: flex-end; }
 
+/* HTML fullscreen: the browser view (native layer) already covers the window;
+   hiding our own chrome prevents any flash-through while entering/exiting. */
+.app-shell.html-fullscreen .topbar,
+.app-shell.html-fullscreen .sidebar,
+.app-shell.html-fullscreen .sidebar-resizer { display: none; }
+
 /* ---- sidebar drag resizer ---- */
 .sidebar-resizer {
   flex: 0 0 8px;

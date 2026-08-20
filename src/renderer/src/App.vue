@@ -17,6 +17,7 @@ const tabs = [
   { id: "settings", label: "设置" },
 ];
 const active = ref("settings");
+const htmlFullscreen = ref(false);
 
 const nav = ref({ url: "", canGoBack: false, canGoForward: false });
 const onboarding = ref({ visible: false, saveDir: "" });
@@ -24,8 +25,9 @@ const onboarding = ref({ visible: false, saveDir: "" });
 const off = [];
 
 onMounted(async () => {
-  off.push(window.desktop.onLayout(({ sidebarWidth }) => {
+  off.push(window.desktop.onLayout(({ sidebarWidth, fullscreen }) => {
     document.documentElement.style.setProperty("--sidebar-width", `${sidebarWidth}px`);
+    htmlFullscreen.value = !!fullscreen;
   }));
   off.push(
     window.desktop.onVideoChanged(async (video) => {
@@ -102,7 +104,7 @@ const navHome = () => window.desktop.navHome();
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'html-fullscreen': htmlFullscreen }">
     <div class="topbar">
       <button class="nav-btn" :disabled="!nav.canGoBack" title="后退" @click="navBack">←</button>
       <button class="nav-btn" :disabled="!nav.canGoForward" title="前进" @click="navForward">→</button>
