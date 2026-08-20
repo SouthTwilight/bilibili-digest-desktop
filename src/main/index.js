@@ -9,33 +9,33 @@ import { initBilibiliHttp } from "./core/http.js";
 import { initFingerprintCapture } from "./core/cdp-fingerprint.js";
 import { parseVideoPageUrl } from "./core/bilibili.js";
 import { isAllowedUrl } from "./core/url-policy.js";
+import {
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_RESIZER_WIDTH,
+  clampSidebarWidth,
+  computeViewBounds,
+} from "./core/layout.js";
 
 // Sidebar hosts the Vue app (the window's own page); the browser view fills
-// the remaining space and is the ONLY place Bilibili pages render. The Vue
-// page also renders a thin navigation toolbar above the browser view area.
-// The sidebar is drag-resizable via an 8px handle; the browser view MUST
-// leave that strip uncovered or its native layer would swallow the mouse.
-const SIDEBAR_DEFAULT_WIDTH = 480;
-const SIDEBAR_MIN_WIDTH = 400;
-const SIDEBAR_MAX_WIDTH = 820;
-const SIDEBAR_RESIZER_WIDTH = 8;
-const TOOLBAR_HEIGHT = 44;
-
+// the remaining space and is the ONLY place Bilibili pages render. Layout
+// constants and bounds math live in core/layout.js.
 let mainWindow = null;
 let browserView = null;
 let sidebarWidth = SIDEBAR_DEFAULT_WIDTH;
+let htmlFullscreen = false;
 let pushLayout = () => {};
 
 function layoutBrowserView() {
   if (!mainWindow || !browserView) return;
   const { width, height } = mainWindow.getContentBounds();
-  const viewWidth = Math.max(0, width - sidebarWidth - SIDEBAR_RESIZER_WIDTH);
-  browserView.setBounds({
-    x: sidebarWidth + SIDEBAR_RESIZER_WIDTH,
-    y: TOOLBAR_HEIGHT,
-    width: viewWidth,
-    height: Math.max(0, height - TOOLBAR_HEIGHT),
-  });
+  browserView.setBounds(
+    computeViewBounds({
+      fullscreen: htmlFullscreen,
+      windowWidth: width,
+      windowHeight: height,
+      sidebarWidth,
+    }),
+  );
 }
 
 // Bilibili pins per-breakpoint layout widths (homepage tier ≥1100px, video
@@ -45,6 +45,9 @@ function layoutBrowserView() {
 // reset whenever a navigation commits, so it must be re-applied after loads.
 function applyBrowserZoom() {
   if (!mainWindow || !browserView) return;
+  // Fullscreen width ≠ normal view width; re-computing mid-fullscreen would
+  // visibly shift the zoom. leave-html-full-screen re-applies it on restore.
+  if (htmlFullscreen) return;
   const { width } = mainWindow.getContentBounds();
   const viewWidth = Math.max(0, width - sidebarWidth - SIDEBAR_RESIZER_WIDTH);
   if (viewWidth > 0) {
@@ -58,7 +61,7 @@ function applyBrowserZoom() {
 }
 
 function resizeSidebar(width) {
-  sidebarWidth = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)));
+  sidebarWidth = clampSidebarWidth(width);
   layoutBrowserView();
   pushLayout();
 }
@@ -93,7 +96,7 @@ function createWindow() {
     mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
   }
   const pushLayoutLocal = () =>
-    mainWindow?.webContents.send("layout:update", { sidebarWidth });
+    mainWindow?.webContents.send("layout:update", { sidebarWidth, fullscreen: htmlFullscreen });
   pushLayout = pushLayoutLocal;
   mainWindow.webContents.on("did-finish-load", pushLayoutLocal);
 
@@ -164,6 +167,21 @@ function createWindow() {
   };
   contents.on("did-navigate", notifyVideoChange);
   contents.on("did-navigate-in-page", notifyVideoChange);
+
+  // Player 全屏 (HTML fullscreen) takes over the whole window: the view goes
+  // edge-to-edge and the sidebar/toolbar hide for immersive watching. Exiting
+  // restores the previous layout losslessly — sidebarWidth is never touched.
+  contents.on("enter-html-full-screen", () => {
+    htmlFullscreen = true;
+    layoutBrowserView();
+    pushLayout();
+  });
+  contents.on("leave-html-full-screen", () => {
+    htmlFullscreen = false;
+    layoutBrowserView();
+    applyBrowserZoom();
+    pushLayout();
+  });
 
   // Attach the fingerprint capture BEFORE the first page load so its
   // Network domain sees the page's own player requests from the start.
