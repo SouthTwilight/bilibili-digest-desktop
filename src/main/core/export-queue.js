@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { fetchTranscript } from "./transcript-service.js";
-import { getVideoDetails } from "./bilibili.js";
+import { fetchBilibiliView } from "./bilibili.js";
 import { buildMarkdownExport, buildHtmlExport, exportFileName } from "./export-render.js";
 import { videoFolderName } from "./notes.js";
 
@@ -59,64 +59,94 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate }) 
     const folder = task.collectionTitle
       ? join(base, sanitizeDirName(task.collectionTitle) || "合集", videoDir)
       : join(base, videoDir);
-    return join(
-      folder,
-      `${exportFileName(item.videoTitle || item.title, item.page || 1)}.${format}`,
-    );
+    // "all" labels a merged whole-video export covering every part.
+    const pageLabel = item.allPages ? "all" : item.page || 1;
+    return join(folder, `${exportFileName(item.videoTitle || item.title, pageLabel)}.${format}`);
   }
 
   async function runItem(task, item) {
     item.itemStatus = "running";
     notify(task);
     try {
+      const settings = settingsStore.load();
+      // One view fetch serves both the metadata and the multi-P page list.
+      const view = await fetchBilibiliView(item.bvid).catch(() => null);
+      const pages = item.allPages && view?.pages?.length ? view.pages : null;
+
       // Source resolution: ASR exports reuse the paid cache slot; subtitle
       // exports always fetch fresh (subtitles are cheap, uncached API calls
       // whose content regenerates server-side).
-      const cacheKey = `${item.bvid}@p${item.page || 1}`;
-      const cached = digestCache.load(cacheKey);
-      const asrSlot = cached?.transcripts?.asr?.success ? cached.transcripts.asr : null;
-      let transcript = null;
-      const wantsAsr = item.useAsr || item.sourceMode === "asr" ||
-        (!item.useAsr && item.sourceMode !== "subtitle" && cached?.sourceOverride === "asr");
-      if (wantsAsr && asrSlot) {
-        transcript = asrSlot;
-      }
-      if (!transcript) {
-        const settings = settingsStore.load();
-        transcript = await fetchTranscript({
+      const fetchForPage = async (page) => {
+        const cacheKey = `${item.bvid}@p${page}`;
+        const cached = digestCache.load(cacheKey);
+        const asrSlot = cached?.transcripts?.asr?.success ? cached.transcripts.asr : null;
+        const wantsAsr = item.useAsr || item.sourceMode === "asr" ||
+          (!item.useAsr && item.sourceMode !== "subtitle" && cached?.sourceOverride === "asr");
+        if (wantsAsr && asrSlot) return { transcript: asrSlot, cached, wantsAsr };
+        const transcript = await fetchTranscript({
           settings,
           videoId: item.bvid,
-          page: item.page || 1,
+          page,
           mode: wantsAsr ? "asr" : "subtitle",
           // Follow the user's per-video track choice (native CC vs AI);
           // fall back to "ai" when no preference was ever set.
           track: item.track || cached?.trackOverride || "ai",
         });
-      }
-      if (!transcript.success) {
-        throw new Error(transcript.message || "获取字幕失败");
-      }
+        return { transcript, cached, wantsAsr };
+      };
       // Cache ASR results so the paid transcript survives reopens; the
       // sidebar, retry flows and future exports all reuse it.
-      if (transcript.source !== "bilibili-subtitle") {
-        const cacheKey = `${item.bvid}@p${item.page || 1}`;
+      const cacheAsr = (page, transcript) => {
+        if (transcript.source === "bilibili-subtitle") return;
+        const cacheKey = `${item.bvid}@p${page}`;
         const existing = digestCache.load(cacheKey) || {};
         digestCache.save(cacheKey, {
           ...existing,
           transcripts: { ...(existing.transcripts || {}), asr: transcript },
           sourceOverride: "asr",
         });
-      }
-      const details = await getVideoDetails(item.bvid).catch(() => ({}));
-      const video = {
-        title: details.title || item.videoTitle || item.title,
-        channelName: details.channelName || "",
-        url: `https://www.bilibili.com/video/${item.bvid}/`,
-        description: details.description || "",
-        language: transcript.language,
-        transcript: transcript.transcript,
-        analysis: cached?.analysis || null,
       };
+
+      const video = {
+        title: view?.title || item.videoTitle || item.title,
+        channelName: view?.owner?.name || "",
+        url: `https://www.bilibili.com/video/${item.bvid}/`,
+        description: view?.desc || "",
+      };
+
+      if (pages) {
+        // Whole-video export: one document, one section per part, with the
+        // part's cached AI chapters (if any) inside its section.
+        const parts = [];
+        for (const [index, pageEntry] of pages.entries()) {
+          const page = pageEntry.page || index + 1;
+          const { transcript, cached, wantsAsr } = await fetchForPage(page);
+          if (!transcript.success) {
+            throw new Error(`P${page}：${transcript.message || "获取字幕失败"}`);
+          }
+          cacheAsr(page, transcript);
+          parts.push({
+            page,
+            title: pageEntry.part,
+            transcript: transcript.transcript,
+            language: transcript.language,
+            analysis: cached?.analysis || null,
+          });
+        }
+        video.language = parts[0]?.language;
+        video.parts = parts;
+      } else {
+        const page = item.page || 1;
+        const { transcript, cached, wantsAsr } = await fetchForPage(page);
+        if (!transcript.success) {
+          throw new Error(transcript.message || "获取字幕失败");
+        }
+        cacheAsr(page, transcript);
+        video.language = transcript.language;
+        video.transcript = transcript.transcript;
+        video.analysis = cached?.analysis || null;
+      }
+
       const format = item.format || task.format || "md";
       const content =
         format === "html" ? buildHtmlExport(video) : buildMarkdownExport(video);

@@ -52,6 +52,43 @@ test("export file names carry the part number for multi-P videos", () => {
   assert.equal(exportFileName("多P视频").endsWith(p1.split("多P视频")[1]), true);
 });
 
+test("all-pages export file name carries the 全部P marker", () => {
+  const name = exportFileName("多P视频", "all");
+  assert.ok(/多P视频_全部P_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}$/.test(name), name);
+});
+
+test("multi-P merged exports render per-part sections with p-aware links", () => {
+  const video = {
+    title: "多P视频",
+    channelName: "UP主",
+    url: "https://www.bilibili.com/video/BVtestP/",
+    description: "",
+    language: "zh",
+    parts: [
+      { page: 1, title: "第一部分", transcript: [{ text: "A句", start: 5 }] },
+      {
+        page: 2,
+        title: "第二部分",
+        transcript: [{ text: "B句", start: 65 }],
+        analysis: {
+          chapters: [{ title: "章", summary: "概", timestamp: "1:05", timestampSeconds: 65 }],
+          keyQuotes: [{ quote: "话", timestamp: "1:05", timestampSeconds: 65 }],
+        },
+      },
+    ],
+  };
+  const md = buildMarkdownExport(video);
+  assert.ok(md.includes("## P1 第一部分"), md);
+  assert.ok(md.includes("## P2 第二部分"), md);
+  assert.ok(md.includes("[0:05](https://www.bilibili.com/video/BVtestP/?t=5s) A句"), md);
+  assert.ok(md.includes("[1:05](https://www.bilibili.com/video/BVtestP/?p=2&t=65s) B句"), md);
+  assert.ok(md.includes("### AI 章节"), md);
+  assert.ok(!md.includes("## 完整字幕"), md);
+  const html = buildHtmlExport(video);
+  assert.ok(html.includes("P2 第二部分"), html);
+  assert.ok(html.includes("?p=2&amp;t=65s"), html);
+});
+
 test("library scan maps collections, videos and files", () => {
   const base = new URL("./tmp-lib/", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
   rmSync(base, { recursive: true, force: true });

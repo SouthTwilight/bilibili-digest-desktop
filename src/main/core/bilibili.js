@@ -95,6 +95,7 @@ export async function getVideoDetails(videoId) {
     channelName: String(view.owner?.name || "").trim(),
     description: String(view.desc || "").trim(),
     duration: Math.max(0, Math.round(Number(view.duration || 0))),
+    pageCount: view.pages?.length || 1,
     canonicalUrl: canonicalBilibiliUrl(videoId),
   };
 }

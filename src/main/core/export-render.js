@@ -29,10 +29,11 @@ export function exportFileTimestamp() {
 // Multi-P videos share one title across parts, and the timestamp only has
 // minute precision — without the part number, exporting P2 within the same
 // minute overwrites P1's file. Parts beyond the first are distinguished;
-// P1/single-P videos keep the legacy name.
+// P1/single-P videos keep the legacy name. The "all" label marks a merged
+// whole-video export.
 export function exportFileName(videoTitle, page = 1) {
   const stamp = exportFileTimestamp();
-  const part = Number(page) > 1 ? `_P${Number(page)}` : "";
+  const part = page === "all" ? "_全部P" : Number(page) > 1 ? `_P${Number(page)}` : "";
   return `${sanitizeName(videoTitle) || "bilibili-digest"}${part}_${stamp}`;
 }
 
@@ -45,6 +46,18 @@ function timestampLabel(seconds) {
     : `${minutes}:${String(rest).padStart(2, "0")}`;
 }
 
+// Whole-video multi-P exports carry one section per part. Each part's
+// timestamps restart at zero (parts are separate playbacks), so links must
+// address the part explicitly: ?p=N&t=... for parts beyond the first.
+function transcriptLink(videoUrl, page, start) {
+  const t = `t=${Math.floor(start)}s`;
+  return page > 1 ? `${videoUrl}?p=${page}&${t}` : `${videoUrl}?${t}`;
+}
+
+function partHeading(part) {
+  return `## P${part.page}${part.title ? ` ${part.title}` : ""}`;
+}
+
 export function buildMarkdownExport(video) {
   const lines = [
     `# ${video.title || "B站视频学习笔记"}`,
@@ -54,23 +67,44 @@ export function buildMarkdownExport(video) {
     `- **字幕语言：** ${video.language || "未知"}`,
   ];
   if (video.description) lines.push("", "## 视频简介", "", video.description);
-  if (video.analysis?.chapters?.length) {
-    lines.push("", "## AI 章节", "");
-    video.analysis.chapters.forEach((chapter) => {
-      lines.push(`### [${chapter.timestamp}] ${chapter.title}`, "", chapter.summary || "", "");
+
+  // `level` keeps the legacy heading depth for single-video exports (## AI
+  // 章节 / ### [ts]) and nests one level deeper inside merged part sections.
+  const pushAnalysis = (analysis, level) => {
+    const h = level === "part" ? "#" : "";
+    if (analysis?.chapters?.length) {
+      lines.push("", `${h}## AI 章节`, "");
+      analysis.chapters.forEach((chapter) => {
+        lines.push(`${h}### [${chapter.timestamp}] ${chapter.title}`, "", chapter.summary || "", "");
+      });
+    }
+    if (analysis?.keyQuotes?.length) {
+      lines.push(`${h}## 关键观点`, "");
+      analysis.keyQuotes.forEach((quote) =>
+        lines.push(`> **${quote.timestamp}** ${quote.quote}`, ""),
+      );
+    }
+  };
+  const pushTranscript = (entries, page) => {
+    lines.push("### 字幕", "");
+    entries.forEach((entry) => {
+      lines.push(`- [${timestampLabel(entry.start)}](${transcriptLink(video.url, page, entry.start)}) ${entry.text}`);
+    });
+  };
+
+  if (video.parts?.length) {
+    video.parts.forEach((part) => {
+      lines.push("", partHeading(part), "");
+      pushAnalysis(part.analysis, "part");
+      pushTranscript(part.transcript || [], part.page);
+    });
+  } else {
+    pushAnalysis(video.analysis, "top");
+    lines.push("## 完整字幕", "");
+    (video.transcript || []).forEach((entry) => {
+      lines.push(`- [${timestampLabel(entry.start)}](${transcriptLink(video.url, 1, entry.start)}) ${entry.text}`);
     });
   }
-  if (video.analysis?.keyQuotes?.length) {
-    lines.push("## 关键观点", "");
-    video.analysis.keyQuotes.forEach((quote) =>
-      lines.push(`> **${quote.timestamp}** ${quote.quote}`, ""),
-    );
-  }
-  lines.push("## 完整字幕", "");
-  (video.transcript || []).forEach((entry) => {
-    const stamp = timestampLabel(entry.start);
-    lines.push(`- [${stamp}](${video.url}?t=${Math.floor(entry.start)}s) ${entry.text}`);
-  });
   lines.push("", "---", "由 Bilibili Digest 桌面版导出");
   return lines.join("\n");
 }
@@ -90,24 +124,41 @@ const HTML_STYLE = `
 `;
 
 export function buildHtmlExport(video) {
-  const chapters = (video.analysis?.chapters || [])
-    .map(
-      (chapter) => `
+  const analysisHtml = (analysis) => {
+    const chapters = (analysis?.chapters || [])
+      .map(
+        (chapter) => `
     <article class="chapter"><a href="${escapeHtml(video.url)}?t=${Number(chapter.timestampSeconds) || 0}s">${escapeHtml(chapter.timestamp)}</a><div><strong>${escapeHtml(chapter.title)}</strong><p>${escapeHtml(chapter.summary || "")}</p></div></article>`,
-    )
-    .join("");
-  const quotes = (video.analysis?.keyQuotes || [])
-    .map(
-      (quote) => `
+      )
+      .join("");
+    const quotes = (analysis?.keyQuotes || [])
+      .map(
+        (quote) => `
     <blockquote><b>${escapeHtml(quote.timestamp)}</b>${escapeHtml(quote.quote)}</blockquote>`,
-    )
-    .join("");
-  const entries = (video.transcript || [])
-    .map(
-      (entry) =>
-        `<div class="line"><a class="time" href="${escapeHtml(video.url)}?t=${Math.floor(entry.start)}s">${escapeHtml(timestampLabel(entry.start))}</a><div>${escapeHtml(entry.text)}</div></div>`,
-    )
-    .join("");
+      )
+      .join("");
+    return { chapters, quotes };
+  };
+  const entriesHtml = (entries, page) =>
+    (entries || [])
+      .map(
+        (entry) =>
+          `<div class="line"><a class="time" href="${escapeHtml(transcriptLink(video.url, page, entry.start))}">${escapeHtml(timestampLabel(entry.start))}</a><div>${escapeHtml(entry.text)}</div></div>`,
+      )
+      .join("");
+
+  let bodySections;
+  if (video.parts?.length) {
+    bodySections = video.parts
+      .map((part) => {
+        const { chapters, quotes } = analysisHtml(part.analysis);
+        return `<h2>P${part.page}${part.title ? ` ${escapeHtml(part.title)}` : ""}</h2>${chapters ? `<h3>AI 章节</h3>${chapters}` : ""}${quotes ? `<h3>关键观点</h3>${quotes}` : ""}<h3>字幕</h3>${entriesHtml(part.transcript, part.page)}`;
+      })
+      .join("");
+  } else {
+    const { chapters, quotes } = analysisHtml(video.analysis);
+    bodySections = `${chapters ? `<h2>AI 章节</h2>${chapters}` : ""}${quotes ? `<h2>关键观点</h2>${quotes}` : ""}<h2>完整字幕</h2>${entriesHtml(video.transcript, 1)}`;
+  }
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(video.title || "B站视频学习笔记")}</title><style>${HTML_STYLE}
-  </style></head><body><main class="page"><h1>${escapeHtml(video.title || "B站视频学习笔记")}</h1><div class="meta">UP主：${escapeHtml(video.channelName || "未知")} · <a href="${escapeHtml(video.url)}">打开原视频</a></div>${video.description ? `<h2>视频简介</h2><p>${escapeHtml(video.description)}</p>` : ""}${chapters ? `<h2>AI 章节</h2>${chapters}` : ""}${quotes ? `<h2>关键观点</h2>${quotes}` : ""}<h2>完整字幕</h2>${entries}<div class="footer">由 Bilibili Digest 桌面版导出</div></main></body></html>`;
+  </style></head><body><main class="page"><h1>${escapeHtml(video.title || "B站视频学习笔记")}</h1><div class="meta">UP主：${escapeHtml(video.channelName || "未知")} · <a href="${escapeHtml(video.url)}">打开原视频</a></div>${video.description ? `<h2>视频简介</h2><p>${escapeHtml(video.description)}</p>` : ""}${bodySections}<div class="footer">由 Bilibili Digest 桌面版导出</div></main></body></html>`;
 }

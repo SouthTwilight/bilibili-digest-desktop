@@ -4,6 +4,7 @@ import { join, dirname, basename, extname } from "node:path";
 import { fetchTranscript } from "./core/transcript-service.js";
 import { getVideoDetails, getCollectionInfo, collectionVideosFromView, fetchBilibiliView } from "./core/bilibili.js";
 import { analyzeTranscript, requestAiCompletion, loadPromptSection } from "./core/ai.js";
+import { splitDocIntoChunks } from "./core/summarize-doc.js";
 import { translateTranscriptBatch } from "./core/translation.js";
 import { explainSelection, cleanupNoteText } from "./core/explain.js";
 import { scanLibrary, readLibraryFile } from "./core/library.js";
@@ -306,13 +307,13 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
   // collection ALWAYS lands in {saveDir}/{合集名}/{视频名_BV号}/ — the same
   // layout the collection export writes — so the library never shows the
   // same video in two places depending on which button exported it.
-  ipcMain.handle("export:single", async (_event, { bvid, page, format, sourceMode, track }) => {
+  ipcMain.handle("export:single", async (_event, { bvid, page, format, sourceMode, track, allPages }) => {
     const info = await getCollectionInfo(bvid).catch(() => null);
     return exportQueue.enqueue({
       type: "single",
       collectionTitle: info?.inCollection ? info.collectionTitle : "",
       format: format === "html" ? "html" : "md",
-      items: [{ bvid, page: page || 1, sourceMode: sourceMode || "subtitle", track }],
+      items: [{ bvid, page: page || 1, sourceMode: sourceMode || "subtitle", track, allPages: !!allPages }],
     });
   });
 
@@ -334,12 +335,23 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
     }
   });
 
-  ipcMain.handle("export:collection-confirm", (_event, { collectionTitle, format, items }) => {
+  // Multi-P videos inside a collection used to export ONLY P1 — pages beyond
+  // the first were silently dropped. Before enqueueing, probe each selected
+  // video: multi-P items are marked allPages so the queue exports one merged
+  // whole-video document instead. A failed probe degrades to the old
+  // single-part behavior rather than blocking the export.
+  ipcMain.handle("export:collection-confirm", async (_event, { collectionTitle, format, items }) => {
+    const expanded = await Promise.all(
+      (Array.isArray(items) ? items : []).map(async (item) => {
+        const view = await fetchBilibiliView(item.bvid).catch(() => null);
+        return view?.pages?.length > 1 ? { ...item, allPages: true } : { ...item };
+      }),
+    );
     return exportQueue.enqueue({
       type: "collection",
       collectionTitle: collectionTitle || "",
       format: format === "html" ? "html" : "md",
-      items,
+      items: expanded,
     });
   });
 
@@ -380,16 +392,58 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
         .replace(/[_-]\d{4}-\d{2}-\d{2}_\d{2}-\d{2}$/, "")
         .slice(0, 60);
       const settings = settingsStore.load();
-      pushProgress({ phase: "summary", title: "正在生成 AI 总结", subtitle: "长文档需要一两分钟" });
-      const systemPrompt = loadPromptSection("summary.md", "System prompt", {
-        title: videoName,
-        content: content.slice(0, 120_000),
-      });
-      const text = await requestAiCompletion({
-        settings,
-        maxTokens: 8192,
-        messages: [{ role: "user", content: systemPrompt }],
-      });
+      // Whole-video multi-P exports can exceed the model's context window.
+      // Split at section boundaries, summarize each chunk with the same
+      // four-layer prompt, then synthesize — no silent truncation.
+      const chunks = splitDocIntoChunks(content, 100_000);
+      let text;
+      if (chunks.length <= 1) {
+        pushProgress({ phase: "summary", title: "正在生成 AI 总结", subtitle: "长文档需要一两分钟" });
+        const systemPrompt = loadPromptSection("summary.md", "System prompt", {
+          title: videoName,
+          content,
+        });
+        text = await requestAiCompletion({
+          settings,
+          maxTokens: 8192,
+          messages: [{ role: "user", content: systemPrompt }],
+        });
+      } else {
+        const partSummaries = [];
+        for (let i = 0; i < chunks.length; i += 1) {
+          pushProgress({
+            phase: "summary",
+            title: "正在生成 AI 总结",
+            subtitle: `长文档已分 ${chunks.length} 块，正在总结第 ${i + 1}/${chunks.length} 块`,
+          });
+          const systemPrompt = loadPromptSection("summary.md", "System prompt", {
+            title: `${videoName}（第 ${i + 1}/${chunks.length} 块）`,
+            content: chunks[i],
+          });
+          partSummaries.push(
+            await requestAiCompletion({
+              settings,
+              maxTokens: 8192,
+              messages: [{ role: "user", content: systemPrompt }],
+            }),
+          );
+        }
+        pushProgress({ phase: "summary", title: "正在汇总各块总结", subtitle: "最后一步" });
+        text = await requestAiCompletion({
+          settings,
+          maxTokens: 8192,
+          messages: [
+            {
+              role: "user",
+              content:
+                `以下是一份长文档（约 ${content.length} 字符）按顺序分块总结的结果。请把它们综合成一份完整的总结文档，` +
+                "遵循与分块总结相同的结构（快速概览 / 结构化深度总结 / 总结与行动项）：合并各块中重复的主题，" +
+                "按内容自然脉络重新组织分节，保留所有时间戳链接和关键原话，不要遗漏任何一块的要点。\n\n" +
+                partSummaries.map((s, i) => `--- 第 ${i + 1} 块总结 ---\n${s}`).join("\n\n"),
+            },
+          ],
+        });
+      }
       const outFile = join(dirname(filePath), `AI总结_${videoName}.md`);
       writeFileSync(outFile, text.trim() + "\n", "utf8");
       return { success: true, file: outFile };
