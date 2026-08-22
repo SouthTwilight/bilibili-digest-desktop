@@ -40,6 +40,18 @@ test("export file names are timestamped and sanitized", () => {
   assert.ok(/\d{4}-\d{2}-\d{2}_\d{2}-\d{2}$/.test(name), name);
 });
 
+test("export file names carry the part number for multi-P videos", () => {
+  // Same title + same minute used to produce ONE filename, so exporting P2
+  // minutes after P1 overwrote P1's file. Pages beyond the first must be
+  // distinguished; P1/single-P keeps the legacy name.
+  const p1 = exportFileName("多P视频", 1);
+  const p2 = exportFileName("多P视频", 2);
+  assert.ok(!p1.includes("_P"), p1);
+  assert.ok(/多P视频_P2_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}$/.test(p2), p2);
+  assert.notEqual(p1, p2);
+  assert.equal(exportFileName("多P视频").endsWith(p1.split("多P视频")[1]), true);
+});
+
 test("library scan maps collections, videos and files", () => {
   const base = new URL("./tmp-lib/", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
   rmSync(base, { recursive: true, force: true });

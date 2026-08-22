@@ -59,7 +59,10 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate }) 
     const folder = task.collectionTitle
       ? join(base, sanitizeDirName(task.collectionTitle) || "合集", videoDir)
       : join(base, videoDir);
-    return join(folder, `${exportFileName(item.videoTitle || item.title)}.${format}`);
+    return join(
+      folder,
+      `${exportFileName(item.videoTitle || item.title, item.page || 1)}.${format}`,
+    );
   }
 
   async function runItem(task, item) {

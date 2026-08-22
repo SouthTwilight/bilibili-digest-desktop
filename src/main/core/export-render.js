@@ -26,8 +26,14 @@ export function exportFileTimestamp() {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
 }
 
-export function exportFileName(videoTitle) {
-  return `${sanitizeName(videoTitle) || "bilibili-digest"}_${exportFileTimestamp()}`;
+// Multi-P videos share one title across parts, and the timestamp only has
+// minute precision — without the part number, exporting P2 within the same
+// minute overwrites P1's file. Parts beyond the first are distinguished;
+// P1/single-P videos keep the legacy name.
+export function exportFileName(videoTitle, page = 1) {
+  const stamp = exportFileTimestamp();
+  const part = Number(page) > 1 ? `_P${Number(page)}` : "";
+  return `${sanitizeName(videoTitle) || "bilibili-digest"}${part}_${stamp}`;
 }
 
 function timestampLabel(seconds) {
