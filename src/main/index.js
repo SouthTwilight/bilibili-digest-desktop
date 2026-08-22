@@ -1,4 +1,4 @@
-import { app, BrowserWindow, WebContentsView, shell, session, ipcMain } from "electron";
+import { app, BrowserWindow, WebContentsView, shell, session, ipcMain, Tray, Menu, dialog } from "electron";
 import { join } from "node:path";
 import { registerIpcHandlers } from "./ipc.js";
 import { createSettingsStore } from "./core/settings-store.js";
@@ -9,6 +9,7 @@ import { initBilibiliHttp } from "./core/http.js";
 import { initFingerprintCapture } from "./core/cdp-fingerprint.js";
 import { parseVideoPageUrl } from "./core/bilibili.js";
 import { isAllowedUrl } from "./core/url-policy.js";
+import { CLOSE_RESPONSE, rememberFromDialog } from "./core/close-policy.js";
 import {
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_RESIZER_WIDTH,
@@ -24,6 +25,69 @@ let browserView = null;
 let sidebarWidth = SIDEBAR_DEFAULT_WIDTH;
 let htmlFullscreen = false;
 let pushLayout = () => {};
+
+// ---- close-to-tray (mainstream behavior, option B: tray on demand) --------
+// The tray icon exists ONLY while the window is hidden, so the everyday
+// taskbar experience is unchanged. The "本次启动不再提醒" checkbox remembers
+// the chosen action for this process; every launch asks again.
+let quitting = false;
+let sessionCloseAction = null; // "minimize" | "quit" | null
+let tray = null;
+
+function restoreFromTray() {
+  destroyTray();
+  if (!mainWindow) return;
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function destroyTray() {
+  tray?.destroy();
+  tray = null;
+}
+
+function minimizeToTray() {
+  if (!tray) {
+    tray = new Tray(join(__dirname, "../../build/icon-256.png"));
+    tray.setToolTip("Bilibili Digest — 点击恢复窗口");
+    tray.setContextMenu(
+      Menu.buildFromTemplate([
+        { label: "显示主界面", click: () => restoreFromTray() },
+        { type: "separator" },
+        { label: "退出", click: () => { quitting = true; app.quit(); } },
+      ]),
+    );
+    tray.on("click", () => restoreFromTray());
+  }
+  mainWindow?.hide();
+}
+
+async function handleCloseRequest() {
+  if (sessionCloseAction === "minimize") return minimizeToTray();
+  if (sessionCloseAction === "quit") {
+    quitting = true;
+    return mainWindow?.close();
+  }
+  const { response, checkboxChecked } = await dialog.showMessageBox(mainWindow, {
+    type: "question",
+    title: "关闭 Bilibili Digest",
+    message: "要最小化到系统托盘，还是直接退出？",
+    detail: "最小化后程序驻留系统托盘，导出队列继续运行；点击托盘图标可恢复窗口。",
+    buttons: ["最小化到托盘", "直接退出", "取消"],
+    defaultId: CLOSE_RESPONSE.MINIMIZE,
+    cancelId: CLOSE_RESPONSE.CANCEL,
+    noLink: true,
+    checkboxLabel: "本次启动不再提醒",
+  });
+  const remembered = rememberFromDialog(response, checkboxChecked);
+  if (remembered) sessionCloseAction = remembered;
+  if (response === CLOSE_RESPONSE.MINIMIZE) return minimizeToTray();
+  if (response === CLOSE_RESPONSE.QUIT) {
+    quitting = true;
+    mainWindow?.close();
+  }
+  // CANCEL: keep the window open.
+}
 
 function layoutBrowserView() {
   if (!mainWindow || !browserView) return;
@@ -219,7 +283,15 @@ function createWindow() {
 
   contents.loadURL("https://www.bilibili.com/");
 
+  mainWindow.on("close", (event) => {
+    // Real quit paths (tray 退出 / remembered quit) set `quitting` first.
+    if (quitting) return;
+    event.preventDefault();
+    void handleCloseRequest();
+  });
+
   mainWindow.on("closed", () => {
+    destroyTray();
     mainWindow = null;
     browserView = null;
   });
