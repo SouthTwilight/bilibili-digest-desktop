@@ -106,6 +106,16 @@ export function resolvePageCid(view, requestedPage) {
   return page.cid;
 }
 
+// Span-check reference for the subtitle validation: multi-P videos report the
+// WHOLE-video total in view.duration, so each part's (correct) subtitle must
+// be compared against that part's own duration or it always "mismatches".
+// Page picking mirrors resolvePageCid to stay consistent with the chosen cid.
+export function expectedPageDuration(view, requestedPage) {
+  const page =
+    view.pages?.[Math.max(1, requestedPage) - 1] || view.pages?.[0];
+  return Math.max(0, Math.round(Number(page?.duration ?? view?.duration) || 0));
+}
+
 export function collectionVideosFromView(view) {
   const season = view?.ugc_season;
   if (!season?.sections?.length) return null;

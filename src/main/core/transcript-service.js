@@ -1,6 +1,7 @@
 import {
   fetchBilibiliView,
   resolvePageCid,
+  expectedPageDuration,
   fetchBilibiliSubtitleTranscript,
 } from "./bilibili.js";
 import { transcribeWithBailian } from "./asr-bailian.js";
@@ -16,13 +17,13 @@ export async function fetchTranscript({ settings, videoId, page = 1, mode = "aut
   const cid = resolvePageCid(view, page);
 
   if (mode !== "asr") {
-    // Pass the video's real duration so cross-wired subtitle files get
-    // caught by the span check inside; `track` picks AI vs native CC.
+    // Pass the current part's real duration so cross-wired subtitle files
+    // get caught by the span check inside; `track` picks AI vs native CC.
     return fetchBilibiliSubtitleTranscript(
       videoId,
       view.aid,
       cid,
-      Math.round(Number(view.duration) || 0),
+      expectedPageDuration(view, page),
       track,
     );
   }

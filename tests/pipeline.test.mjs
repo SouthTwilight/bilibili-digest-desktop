@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   normalizeTranscript,
   parseVideoPageUrl,
+  expectedPageDuration,
 } from "../src/main/core/bilibili.js";
 import { createDigestCache } from "../src/main/core/digest-cache.js";
 import { unlinkSync, existsSync } from "node:fs";
@@ -37,6 +38,29 @@ test("parseVideoPageUrl extracts bvid and part", () => {
     page: 1,
   });
   assert.equal(parseVideoPageUrl("https://www.bilibili.com/"), null);
+});
+
+test("expectedPageDuration uses the current part's duration, not the multi-P total", () => {
+  // Real repro shape: 8-part video, view.duration is the WHOLE-video total
+  // (905s) while each part is ~1 minute. The subtitle span check must
+  // reference the requested part or every part's correct subtitle fails.
+  const multiPView = {
+    duration: 905,
+    pages: [
+      { cid: 1, duration: 67 },
+      { cid: 2, duration: 85 },
+      { cid: 3, duration: 119 },
+    ],
+  };
+  assert.equal(expectedPageDuration(multiPView, 1), 67);
+  assert.equal(expectedPageDuration(multiPView, 3), 119);
+  // Out-of-range page falls back to the first part, mirroring resolvePageCid.
+  assert.equal(expectedPageDuration(multiPView, 99), 67);
+  // Single-part videos and missing per-page durations fall back to the total.
+  assert.equal(expectedPageDuration({ duration: 512 }, 1), 512);
+  assert.equal(expectedPageDuration({ duration: 480, pages: [{ cid: 7 }] }, 1), 480);
+  // Garbage durations never reach the span check as a bogus reference.
+  assert.equal(expectedPageDuration({ duration: "x" }, 1), 0);
 });
 
 test("digest cache roundtrips, expires old schema, caps entries", () => {
