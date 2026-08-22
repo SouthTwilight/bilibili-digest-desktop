@@ -4,6 +4,7 @@ import {
   buildMarkdownExport,
   buildHtmlExport,
   exportFileName,
+  sanitizeName,
 } from "../src/main/core/export-render.js";
 import { scanLibrary } from "../src/main/core/library.js";
 import { createExportQueue } from "../src/main/core/export-queue.js";
@@ -55,6 +56,15 @@ test("export file names carry the part number for multi-P videos", () => {
 test("all-pages export file name carries the 全部P marker", () => {
   const name = exportFileName("多P视频", "all");
   assert.ok(/多P视频_全部P_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}$/.test(name), name);
+});
+
+test("sanitizeName strips Windows-illegal characters from titles", () => {
+  // Real-world repro: a video titled "AI游戏开发速成课|AI生成卡牌游戏美术素材"
+  // made the AI-summary output path invalid (ENOENT) because the pipe is an
+  // illegal filename character on Windows.
+  const name = sanitizeName("AI游戏开发速成课|AI生成卡牌游戏美术素材");
+  assert.ok(!/[\\/:*?"<>|]/.test(name), name);
+  assert.ok(name.includes("AI生成卡牌游戏美术素材"), name);
 });
 
 test("multi-P merged exports render per-part sections with p-aware links", () => {

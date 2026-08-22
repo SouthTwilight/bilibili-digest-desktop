@@ -8,7 +8,7 @@ import { splitDocIntoChunks } from "./core/summarize-doc.js";
 import { translateTranscriptBatch } from "./core/translation.js";
 import { explainSelection, cleanupNoteText } from "./core/explain.js";
 import { scanLibrary, readLibraryFile } from "./core/library.js";
-import { exportFileName } from "./core/export-render.js";
+import { exportFileName, sanitizeName } from "./core/export-render.js";
 
 function pushProgress(payload) {
   BrowserWindow.getAllWindows()[0]?.webContents.send("digest:progress", payload);
@@ -444,7 +444,13 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
           ],
         });
       }
-      const outFile = join(dirname(filePath), `AI总结_${videoName}.md`);
+      // Titles ride straight into the output filename; Windows-illegal
+      // characters in them (e.g. "AI游戏开发速成课|AI生成...") used to make
+      // writeFileSync fail with ENOENT. The prompt keeps the raw title.
+      const outFile = join(
+        dirname(filePath),
+        `AI总结_${sanitizeName(videoName) || "未命名"}.md`,
+      );
       writeFileSync(outFile, text.trim() + "\n", "utf8");
       return { success: true, file: outFile };
     } catch (error) {

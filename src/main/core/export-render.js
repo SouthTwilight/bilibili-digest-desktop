@@ -10,7 +10,7 @@ function escapeHtml(text) {
     .replace(/"/g, "&quot;");
 }
 
-function sanitizeName(name) {
+export function sanitizeName(name) {
   return String(name || "")
     .replace(/[\\/:*?"<>|]/g, "")
     .replace(/[＼／：＊？＂＜＞｜]/g, "")
