@@ -69,6 +69,10 @@ html {
   direction: rtl;
   text-align: right;
   padding-left: 8px;
+  /* Read-only but copyable: the BV id shown here is something users want to
+     paste elsewhere; the app-wide user-select:none would block that. */
+  user-select: text;
+  cursor: text;
 }
 
 .body-row { flex: 1; display: flex; min-height: 0; }
