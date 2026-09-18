@@ -4,7 +4,11 @@ import { join, dirname, basename, extname } from "node:path";
 import { fetchTranscript } from "./core/transcript-service.js";
 import { getVideoDetails, getCollectionInfo, collectionVideosFromView, fetchBilibiliView } from "./core/bilibili.js";
 import { analyzeTranscript, requestAiCompletion, loadPromptSection } from "./core/ai.js";
-import { splitDocIntoChunks } from "./core/summarize-doc.js";
+import {
+  splitDocIntoChunks,
+  sanitizeFocus,
+  buildSynthesisFocusInstruction,
+} from "./core/summarize-doc.js";
 import { translateTranscriptBatch } from "./core/translation.js";
 import { explainSelection, cleanupNoteText } from "./core/explain.js";
 import { scanLibrary, readLibraryFile } from "./core/library.js";
@@ -380,7 +384,7 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
 
   // Summarize a library markdown document with the configured text model and
   // store the result next to it as AI总结_视频名.md.
-  ipcMain.handle("library:summarize", async (_event, { filePath }) => {
+  ipcMain.handle("library:summarize", async (_event, { filePath, focus }) => {
     const base = settingsStore.load().saveDir;
     if (!String(filePath || "").startsWith(String(base || "\u0000"))) {
       return { success: false, error: "文件不在当前保存目录内。" };
@@ -392,6 +396,14 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
         .replace(/[_-]\d{4}-\d{2}-\d{2}_\d{2}-\d{2}$/, "")
         .slice(0, 60);
       const settings = settingsStore.load();
+      // User-typed summary direction: sanitize, remember verbatim (empty
+      // included) so the dialog prefills the last direction, and render the
+      // optional prompt block. The placeholder must always be supplied.
+      const userFocus = sanitizeFocus(focus);
+      settingsStore.save({ ...settings, lastSummaryFocus: userFocus });
+      const userFocusBlock = userFocus
+        ? loadPromptSection("summary.md", "User focus block", { userFocus })
+        : "";
       // Whole-video multi-P exports can exceed the model's context window.
       // Split at section boundaries, summarize each chunk with the same
       // four-layer prompt, then synthesize — no silent truncation.
@@ -402,6 +414,7 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
         const systemPrompt = loadPromptSection("summary.md", "System prompt", {
           title: videoName,
           content,
+          userFocusBlock,
         });
         text = await requestAiCompletion({
           settings,
@@ -419,6 +432,7 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
           const systemPrompt = loadPromptSection("summary.md", "System prompt", {
             title: `${videoName}（第 ${i + 1}/${chunks.length} 块）`,
             content: chunks[i],
+            userFocusBlock,
           });
           partSummaries.push(
             await requestAiCompletion({
@@ -429,6 +443,7 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
           );
         }
         pushProgress({ phase: "summary", title: "正在汇总各块总结", subtitle: "最后一步" });
+        const focusInstruction = buildSynthesisFocusInstruction(userFocus);
         text = await requestAiCompletion({
           settings,
           maxTokens: 8192,
@@ -438,7 +453,9 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
               content:
                 `以下是一份长文档（约 ${content.length} 字符）按顺序分块总结的结果。请把它们综合成一份完整的总结文档，` +
                 "遵循与分块总结相同的结构（快速概览 / 结构化深度总结 / 总结与行动项）：合并各块中重复的主题，" +
-                "按内容自然脉络重新组织分节，保留所有时间戳链接和关键原话，不要遗漏任何一块的要点。\n\n" +
+                "按内容自然脉络重新组织分节，保留所有时间戳链接和关键原话，不要遗漏任何一块的要点。" +
+                focusInstruction +
+                "\n\n" +
                 partSummaries.map((s, i) => `--- 第 ${i + 1} 块总结 ---\n${s}`).join("\n\n"),
             },
           ],

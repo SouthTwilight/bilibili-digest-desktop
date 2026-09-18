@@ -16,7 +16,8 @@ contextBridge.exposeInMainWorld("desktop", {
   captureFrame: () => ipcRenderer.invoke("video:capture-frame"),
   exportNotes: (video) => ipcRenderer.invoke("notes:export", video),
   openWithDefaultApp: (filePath) => ipcRenderer.invoke("library:open", { filePath }),
-  summarizeDoc: (filePath) => ipcRenderer.invoke("library:summarize", { filePath }),
+  summarizeDoc: (filePath, focus = "") =>
+    ipcRenderer.invoke("library:summarize", { filePath, focus }),
   revealInFolder: (filePath) => ipcRenderer.invoke("shell:reveal", filePath),
   navGo: (direction) => ipcRenderer.invoke("nav:go", direction),
   navReload: () => ipcRenderer.invoke("nav:reload"),
