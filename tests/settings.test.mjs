@@ -46,3 +46,10 @@ test("settings store persists and reloads through the file system", () => {
   assert.equal(reloaded.saveDir, "E:/x");
   unlinkSync(path);
 });
+
+test("lastSummaryFocus: 默认空串、去首尾空白、非字符串容错、500 字截断", () => {
+  assert.equal(normalize({}).lastSummaryFocus, "");
+  assert.equal(normalize({ lastSummaryFocus: "  列出电影和配乐  " }).lastSummaryFocus, "列出电影和配乐");
+  assert.equal(normalize({ lastSummaryFocus: 42 }).lastSummaryFocus, "");
+  assert.equal(normalize({ lastSummaryFocus: "x".repeat(600) }).lastSummaryFocus.length, 500);
+});

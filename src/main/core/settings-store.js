@@ -81,6 +81,9 @@ export function normalize(input = {}, defaults = {}) {
     asrApiKeys: normalizeAsrApiKeys(input.asrApiKeys, input.asrApiKey),
     asrDoubaoAppKey: trimKey(input.asrDoubaoAppKey),
     saveDir: trimKey(input.saveDir) || defaults.saveDir || "",
+    // Free-form "focus" text for the library AI-summary dialog; remembered
+    // verbatim (including empty) so the dialog prefills the last direction.
+    lastSummaryFocus: trimKey(input.lastSummaryFocus).slice(0, 500),
     // Doubao enforces a concurrency quota; 1 serializes ASR tasks by default.
     exportConcurrency: Math.min(8, Math.max(1, Number(input.exportConcurrency) || 4)),
     onboarded: !!input.onboarded,
