@@ -58,3 +58,22 @@ export function splitDocIntoChunks(content, maxChars = 100_000) {
   if (chunk.length) chunks.push(chunk.join("\n"));
   return chunks;
 }
+
+// ---- User focus (AI summary direction) -----------------------------------
+
+// The focus text rides into the prompt verbatim; only trim and cap it so a
+// stray paste cannot blow up the request or the stored settings.
+export function sanitizeFocus(value) {
+  return String(value ?? "").trim().slice(0, 500);
+}
+
+// Extra instruction appended to the multi-chunk synthesis prompt so the
+// per-chunk focus sections survive the final merge.
+export function buildSynthesisFocusInstruction(focus) {
+  const clean = sanitizeFocus(focus);
+  if (!clean) return "";
+  return (
+    `用户重点关注方向：${clean}。` +
+    "各分块总结中为该方向追加的专属章节，在合成时必须保留并合并去重。"
+  );
+}
