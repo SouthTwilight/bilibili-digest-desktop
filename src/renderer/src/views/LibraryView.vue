@@ -42,25 +42,49 @@ function openWithDefaultApp(path) {
 
 const summarizing = ref(false);
 const summarizeStatus = ref("");
+const focusModal = ref(false);
+const focusText = ref("");
 
-async function summarizeDoc() {
+function flashStatus(text, ms = 2000) {
+  summarizeStatus.value = text;
+  setTimeout(() => (summarizeStatus.value = ""), ms);
+}
+
+async function openSummarizeDialog() {
   if (summarizing.value || !preview.value) return;
   // Only markdown documents make sense to summarize.
   if (preview.value.kind !== "md" && !preview.value.name.endsWith(".md")) {
-    summarizeStatus.value = "仅支持 Markdown 文件";
-    setTimeout(() => (summarizeStatus.value = ""), 2000);
+    flashStatus("仅支持 Markdown 文件");
     return;
   }
+  try {
+    const settings = await window.desktop.getSettings();
+    focusText.value = settings.lastSummaryFocus || "";
+  } catch {
+    focusText.value = "";
+  }
+  // App-level modals render in the window page, which the browser view covers.
+  window.desktop.setViewVisible(false);
+  focusModal.value = true;
+}
+
+function closeSummarizeDialog() {
+  focusModal.value = false;
+  window.desktop.setViewVisible(true);
+}
+
+async function runSummarize() {
+  if (summarizing.value || !preview.value) return;
+  closeSummarizeDialog();
   summarizing.value = true;
   summarizeStatus.value = "总结中…";
   try {
-    const result = await window.desktop.summarizeDoc(preview.value.path);
+    const result = await window.desktop.summarizeDoc(preview.value.path, focusText.value);
     if (result.success) {
       summarizeStatus.value = "✓ 已生成 AI 总结";
       await refresh();
       // Auto-open the summary for immediate feedback.
-      const relative = result.file;
-      openWithDefaultApp(relative);
+      openWithDefaultApp(result.file);
     } else {
       summarizeStatus.value = `⚠️ ${result.error || "总结失败"}`;
     }
@@ -190,7 +214,7 @@ function prettyNotes(content) {
       <div class="preview-head">
         <span>{{ preview.name }}</span>
         <span v-if="summarizeStatus" class="summarize-status">{{ summarizeStatus }}</span>
-        <button class="btn ghost small" @click="summarizeDoc" :disabled="summarizing">AI总结</button>
+        <button class="btn ghost small" @click="openSummarizeDialog" :disabled="summarizing">AI总结</button>
         <button class="btn ghost small" @click="openWithDefaultApp(preview.path)">默认应用</button>
         <button class="btn ghost small" @click="reveal(preview.path)">资源管理器</button>
         <button class="btn ghost small" @click="preview = null">关闭</button>
@@ -202,5 +226,66 @@ function prettyNotes(content) {
       <pre v-else-if="preview.kind === 'notes'" class="preview-body plain">{{ prettyNotes(preview.content) }}</pre>
       <pre v-else class="preview-body plain">{{ preview.content }}</pre>
     </div>
+
+    <div v-if="focusModal" class="explain-overlay" @click.self="closeSummarizeDialog">
+      <div class="focus-dialog">
+        <h3>总结关注方向（可选）</h3>
+        <textarea
+          v-model="focusText"
+          class="focus-input"
+          rows="3"
+          maxlength="500"
+          placeholder="如：列出视频中提到的电影和配乐；提取分步骤操作清单；只提取术语和定义"
+          @keydown.esc.stop.prevent="closeSummarizeDialog"
+          @keydown.ctrl.enter.prevent="runSummarize"
+          @keydown.meta.enter.prevent="runSummarize"
+        ></textarea>
+        <p class="focus-hint">留空使用通用模板；总结的固定结构与格式不受影响。</p>
+        <div class="focus-actions">
+          <button class="btn ghost small" @click="closeSummarizeDialog">取消</button>
+          <button class="btn small" :disabled="summarizing" @click="runSummarize">开始总结</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.focus-dialog {
+  width: min(480px, 92vw);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  box-shadow: 0 12px 40px rgba(24, 25, 28, 0.25);
+}
+.focus-dialog h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  color: var(--ink);
+}
+.focus-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  resize: vertical;
+  color: var(--ink);
+  background: var(--surface-soft);
+}
+.focus-input:focus {
+  outline: 2px solid var(--blue);
+  border-color: transparent;
+}
+.focus-hint {
+  margin: 8px 0 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.focus-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+</style>
