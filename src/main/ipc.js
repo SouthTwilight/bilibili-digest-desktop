@@ -8,6 +8,7 @@ import {
   splitDocIntoChunks,
   sanitizeFocus,
   buildSynthesisFocusInstruction,
+  buildSummaryNotice,
 } from "./core/summarize-doc.js";
 import { translateTranscriptBatch } from "./core/translation.js";
 import { explainSelection, cleanupNoteText } from "./core/explain.js";
@@ -22,7 +23,7 @@ function onProgress(phase) {
   return (title, subtitle) => pushProgress({ phase, title, subtitle });
 }
 
-export function registerIpcHandlers({ settingsStore, digestCache, notesStore, exportQueue, getBrowserView, setBrowserViewVisible, resizeSidebar }) {
+export function registerIpcHandlers({ settingsStore, digestCache, notesStore, exportQueue, getBrowserView, setBrowserViewVisible, resizeSidebar, notifyUser }) {
   ipcMain.handle("settings:get", () => settingsStore.load());
   ipcMain.handle("settings:set", (_event, input) => settingsStore.save(input || {}));
 
@@ -175,6 +176,10 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
         return { success: false, error: "RATE_LIMITED", message: "请求被限流，请稍后重试。" };
       }
       return { success: false, error: error.code || error.message, message: error.message };
+    } finally {
+      // The renderer's global progress card only clears on this empty-title
+      // tick — the OverviewView no longer clears it locally.
+      pushProgress({ phase: "analysis", title: "", subtitle: "" });
     }
   });
 
@@ -469,12 +474,22 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
         `AI总结_${sanitizeName(videoName) || "未命名"}.md`,
       );
       writeFileSync(outFile, text.trim() + "\n", "utf8");
+      notifyUser?.(
+        buildSummaryNotice({ success: true, videoName, file: outFile }),
+        { foregroundEvent: "summary:finished", trayClickEvent: "summary:finished" },
+      );
       return { success: true, file: outFile };
     } catch (error) {
+      notifyUser?.(
+        buildSummaryNotice({ success: false, error: error.message }),
+        { foregroundEvent: "summary:finished", trayClickEvent: "summary:finished" },
+      );
       if (error.code === "NO_AI_KEY") {
         return { success: false, error: "未配置文本模型 API Key，请先到设置页填写。" };
       }
       return { success: false, error: error.message };
+    } finally {
+      pushProgress({ phase: "summary", title: "", subtitle: "" });
     }
   });
 
