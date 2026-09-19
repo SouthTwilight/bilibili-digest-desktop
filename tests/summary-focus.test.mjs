@@ -4,6 +4,7 @@ import {
   splitDocIntoChunks,
   sanitizeFocus,
   buildSynthesisFocusInstruction,
+  buildSummaryNotice,
 } from "../src/main/core/summarize-doc.js";
 import { loadPromptSection } from "../src/main/core/ai.js";
 
@@ -49,4 +50,23 @@ test("User focus block 渲染方向原文与专属章节/时间戳要求", () =>
 test("User focus block 变量替换无残留", () => {
   const block = loadPromptSection("summary.md", "User focus block", { userFocus: "X" });
   assert.ok(!block.includes("{userFocus}"));
+});
+
+test("buildSummaryNotice: 成功带文件与名称", () => {
+  const n = buildSummaryNotice({ success: true, videoName: "某视频", file: "D:/x/AI总结_某视频.md" });
+  assert.equal(n.kind, "summary");
+  assert.equal(n.ok, true);
+  assert.equal(n.title, "AI 总结完成：某视频");
+  assert.equal(n.file, "D:/x/AI总结_某视频.md");
+});
+
+test("buildSummaryNotice: 失败带原因、无原因兜底、成功无 file 兜底", () => {
+  const a = buildSummaryNotice({ success: false, error: "API key 被拒绝" });
+  assert.equal(a.ok, false);
+  assert.match(a.title, /AI 总结失败：API key 被拒绝/);
+  assert.equal(a.file, null);
+  const b = buildSummaryNotice({ success: false });
+  assert.match(b.title, /未知错误/);
+  const c = buildSummaryNotice({ success: true, videoName: "x" });
+  assert.equal(c.file, null);
 });

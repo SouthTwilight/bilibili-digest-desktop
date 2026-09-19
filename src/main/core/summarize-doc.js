@@ -77,3 +77,11 @@ export function buildSynthesisFocusInstruction(focus) {
     "各分块总结中为该方向追加的专属章节，在合成时必须保留并合并去重。"
   );
 }
+
+// Notice payload for the library AI-summary completion (main-process router
+// decides in-app toast vs OS notification; "打开" rides on `file`).
+export function buildSummaryNotice({ success, videoName, file, error }) {
+  return success
+    ? { kind: "summary", ok: true, title: `AI 总结完成：${videoName}`, file: file || null }
+    : { kind: "summary", ok: false, title: `AI 总结失败：${error || "未知错误"}`, file: null };
+}
