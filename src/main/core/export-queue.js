@@ -38,7 +38,7 @@ export function buildFinishedNotice(task) {
       : task.type === "collection"
         ? `合集导出完成（${results.length} 个视频）`
         : "字幕导出完成";
-  return { ok: failed === 0, title, file: succeeded[0]?.file || null };
+  return { kind: "export", ok: failed === 0, title, file: succeeded[0]?.file || null };
 }
 
 export function createExportQueue({ settingsStore, digestCache, onTaskUpdate }) {

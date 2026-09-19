@@ -23,6 +23,27 @@ import {
 let mainWindow = null;
 let browserView = null;
 let sidebarWidth = SIDEBAR_DEFAULT_WIDTH;
+
+// Completion notices share one router: in-app event when the window is
+// fronted, OS notification (click = restore window) when trayed/minimized.
+// trayClickEvent re-delivers the notice (or navigation intent) after restore.
+function pushNoticeToUser(notice, { foregroundEvent, trayClickEvent }) {
+  if (mainWindow && mainWindow.isVisible() && !mainWindow.isMinimized()) {
+    mainWindow.webContents.send(foregroundEvent, notice);
+    return;
+  }
+  try {
+    const notification = new Notification({ title: "Bilibili Digest", body: notice.title });
+    notification.on("click", () => {
+      mainWindow?.show();
+      mainWindow?.focus();
+      mainWindow?.webContents.send(trayClickEvent, notice);
+    });
+    notification.show();
+  } catch (error) {
+    console.warn("[notice] system notification failed:", error.message);
+  }
+}
 let htmlFullscreen = false;
 let pushLayout = () => {};
 
@@ -317,24 +338,9 @@ app.whenReady().then(() => {
     digestCache,
     onTaskUpdate: (task) => {
       mainWindow?.webContents.send("export:task-update", task);
-      // Completion notice: in-app toast when the window is fronted, a system
-      // notification (click = restore + jump to tasks) when trayed/minimized.
       const notice = buildFinishedNotice(task);
-      if (!notice) return;
-      if (mainWindow && mainWindow.isVisible() && !mainWindow.isMinimized()) {
-        mainWindow.webContents.send("export:finished", notice);
-        return;
-      }
-      try {
-        const notification = new Notification({ title: "Bilibili Digest", body: notice.title });
-        notification.on("click", () => {
-          mainWindow?.show();
-          mainWindow?.focus();
-          mainWindow?.webContents.send("export:navigate-tasks");
-        });
-        notification.show();
-      } catch (error) {
-        console.warn("[export] system notification failed:", error.message);
+      if (notice) {
+        pushNoticeToUser(notice, { foregroundEvent: "export:finished", trayClickEvent: "export:navigate-tasks" });
       }
     },
   });
@@ -359,6 +365,7 @@ app.whenReady().then(() => {
     getBrowserView: () => browserView,
     setBrowserViewVisible,
     resizeSidebar,
+    notifyUser: pushNoticeToUser,
   });
 
   createWindow();
