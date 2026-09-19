@@ -19,6 +19,22 @@ const tabs = [
 const active = ref("settings");
 const htmlFullscreen = ref(false);
 
+const finishedNotice = ref(null);
+let finishedTimer = null;
+function showFinishedNotice(notice) {
+  finishedNotice.value = notice;
+  clearTimeout(finishedTimer);
+  finishedTimer = setTimeout(() => (finishedNotice.value = null), 6000);
+}
+function dismissFinishedNotice() {
+  clearTimeout(finishedTimer);
+  finishedNotice.value = null;
+}
+function goTasksFromNotice() {
+  active.value = "tasks";
+  dismissFinishedNotice();
+}
+
 const nav = ref({ url: "", canGoBack: false, canGoForward: false });
 const onboarding = ref({ visible: false, saveDir: "" });
 
@@ -41,6 +57,14 @@ onMounted(async () => {
     }),
   );
   off.push(window.desktop.onNavState((state) => (nav.value = state)));
+  off.push(
+    window.desktop.onExportFinished((notice) => showFinishedNotice(notice)),
+  );
+  off.push(
+    window.desktop.onNavigateTasks(() => {
+      active.value = "tasks";
+    }),
+  );
 
   // First-run onboarding: pick a save directory, then log in on the right.
   const settings = await window.desktop.getSettings();
@@ -174,5 +198,48 @@ const navHome = () => window.desktop.navHome();
         </div>
       </div>
     </div>
+
+    <div v-if="finishedNotice" class="finished-toast" :class="{ failed: !finishedNotice.ok }">
+      <span class="finished-toast-title">{{ finishedNotice.title }}</span>
+      <button class="btn ghost small" @click="goTasksFromNotice">查看</button>
+      <button class="finished-toast-close" @click="dismissFinishedNotice">×</button>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.finished-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 4px solid #2ecc71;
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow: 0 10px 30px rgba(24, 25, 28, 0.2);
+  font-size: 13px;
+  color: var(--ink);
+}
+.finished-toast.failed {
+  border-left-color: #e74c3c;
+}
+.finished-toast-title {
+  margin-right: 4px;
+}
+.finished-toast-close {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+}
+.finished-toast-close:active {
+  transform: scale(0.85);
+}
+</style>
