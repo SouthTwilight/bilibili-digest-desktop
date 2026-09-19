@@ -11,6 +11,7 @@ const asrConfigured = ref(false);
 const exportFormat = ref("md");
 const collectionInfo = ref(null);
 const collectionModal = ref(null); // { collectionTitle, videos, error }
+const exporting = ref(false);
 
 async function refreshCollectionInfo() {
   collectionInfo.value = null;
@@ -22,25 +23,49 @@ async function refreshCollectionInfo() {
 }
 
 async function exportSingleNow() {
-  if (!currentVideo.value) return;
-  // Export what the user is actually looking at: the displayed transcript's
-  // source picks the queue item's source mode, and the current track
-  // (native CC vs AI) rides along.
-  const source = transcript.value?.source === "bilibili-subtitle" ? "subtitle" : "asr";
-  await window.desktop.exportSingle(currentVideo.value.bvid, currentVideo.value.page, exportFormat.value, source, lastLoadTrack);
-  error.value = "";
+  if (!currentVideo.value || exporting.value) return;
+  exporting.value = true;
+  // Feedback fires immediately — the collection probe inside the IPC handler
+  // can take seconds and must not leave the click feeling dead.
   showToast("已加入导出队列，见「任务」页");
+  try {
+    // Export what the user is actually looking at: the displayed transcript's
+    // source picks the queue item's source mode, and the current track
+    // (native CC vs AI) rides along.
+    const source = transcript.value?.source === "bilibili-subtitle" ? "subtitle" : "asr";
+    const result = await window.desktop.exportSingle(currentVideo.value.bvid, currentVideo.value.page, exportFormat.value, source, lastLoadTrack);
+    if (result && result.success === false) {
+      showToast(`⚠️ ${result.error || "导出失败"}`);
+      return;
+    }
+    error.value = "";
+  } catch (e) {
+    showToast(`⚠️ ${e.message || "导出失败"}`);
+  } finally {
+    exporting.value = false;
+  }
 }
 
 // Multi-P videos export as ONE whole-video document (one section per part)
 // instead of per-part files — the part sections and ?p= jump links are built
 // by the export renderer in the main process.
 async function exportAllPagesNow() {
-  if (!currentVideo.value) return;
-  const source = transcript.value?.source === "bilibili-subtitle" ? "subtitle" : "asr";
-  await window.desktop.exportSingle(currentVideo.value.bvid, currentVideo.value.page, exportFormat.value, source, lastLoadTrack, true);
-  error.value = "";
+  if (!currentVideo.value || exporting.value) return;
+  exporting.value = true;
   showToast("已加入导出队列（全部P合并为一份文档），见「任务」页");
+  try {
+    const source = transcript.value?.source === "bilibili-subtitle" ? "subtitle" : "asr";
+    const result = await window.desktop.exportSingle(currentVideo.value.bvid, currentVideo.value.page, exportFormat.value, source, lastLoadTrack, true);
+    if (result && result.success === false) {
+      showToast(`⚠️ ${result.error || "导出失败"}`);
+      return;
+    }
+    error.value = "";
+  } catch (e) {
+    showToast(`⚠️ ${e.message || "导出失败"}`);
+  } finally {
+    exporting.value = false;
+  }
 }
 
 async function openCollectionExport() {
@@ -89,9 +114,21 @@ async function confirmCollectionExport() {
       format: exportFormat.value,
     }));
   if (!items.length) return;
-  await window.desktop.exportCollectionConfirm(modal.collectionTitle, exportFormat.value, items);
-  collectionModal.value = null;
-  showToast(`已加入导出队列（${items.length} 个视频），见「任务」页`);
+  exporting.value = true;
+  try {
+    const result = await window.desktop.exportCollectionConfirm(modal.collectionTitle, exportFormat.value, items);
+    collectionModal.value = null;
+    if (result && result.success === false) {
+      showToast(`⚠️ ${result.error || "导出失败"}`);
+      return;
+    }
+    showToast(`已加入导出队列（${items.length} 个视频），见「任务」页`);
+  } catch (e) {
+    collectionModal.value = null;
+    showToast(`⚠️ ${e.message || "导出失败"}`);
+  } finally {
+    exporting.value = false;
+  }
 }
 
 let toastTimer = null;
@@ -361,11 +398,12 @@ function seek(seconds) {
         <option value="md">Markdown</option>
         <option value="html">HTML 网页</option>
       </select>
-      <button class="btn ghost small" @click="exportSingleNow">导出当前字幕</button>
+      <button class="btn ghost small" :disabled="exporting" @click="exportSingleNow">导出当前字幕</button>
       <button
         v-if="(videoDetails?.pageCount || 1) > 1"
         class="btn ghost small"
         title="所有分P合并为一份文档，每个P一个章节"
+        :disabled="exporting"
         @click="exportAllPagesNow"
       >导出全部P</button>
       <button v-if="collectionInfo" class="btn small" @click="openCollectionExport">导出合集</button>
@@ -444,9 +482,8 @@ function seek(seconds) {
         </div>
         <div style="display: flex; gap: 8px; justify-content: flex-end">
           <button class="btn ghost" @click="collectionModal = null">取消</button>
-          <button class="btn" :disabled="!collectionModal.videos.some(v => v.selected)" @click="confirmCollectionExport">
-            开始导出（{{ collectionModal.videos.filter(v => v.selected).length }} 个）
-          </button>
+          <button class="btn" :disabled="exporting || !collectionModal.videos.some(v => v.selected)" @click="confirmCollectionExport">
+            开始导出（{{ collectionModal.videos.filter(v => v.selected).length }} 个）</button>
         </div>
       </template>
     </div>
