@@ -23,6 +23,24 @@ function sanitizeDirName(name) {
 //     concurrency quota; Bailian bills per task).
 // Tasks survive browsing: the queue lives in the main process and keeps
 // running no matter what page the browser view shows.
+
+// Turn a serialized task (the onTaskUpdate payload shape) into a completion
+// notice for the main-process router (in-app toast vs OS notification).
+// Running and user-canceled tasks produce no notice.
+export function buildFinishedNotice(task) {
+  if (!task || task.status !== "done") return null;
+  const results = Array.isArray(task.results) ? task.results : [];
+  const succeeded = results.filter((item) => item.status === "done");
+  const failed = results.length - succeeded.length;
+  const title =
+    failed > 0
+      ? `导出完成：成功 ${succeeded.length}，失败 ${failed}`
+      : task.type === "collection"
+        ? `合集导出完成（${results.length} 个视频）`
+        : "字幕导出完成";
+  return { ok: failed === 0, title, file: succeeded[0]?.file || null };
+}
+
 export function createExportQueue({ settingsStore, digestCache, onTaskUpdate }) {
   const tasks = new Map();
   const subtitleLane = [];
