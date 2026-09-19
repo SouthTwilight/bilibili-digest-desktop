@@ -52,6 +52,10 @@ contextBridge.exposeInMainWorld("desktop", {
 
   onExportTaskUpdate: (callback) =>
     ipcRenderer.on("export:task-update", (_event, task) => callback(task)),
+  onExportFinished: (callback) =>
+    ipcRenderer.on("export:finished", (_event, notice) => callback(notice)),
+  onNavigateTasks: (callback) =>
+    ipcRenderer.on("export:navigate-tasks", () => callback()),
 
   onLayout: (callback) =>
     ipcRenderer.on("layout:update", (_event, layout) => callback(layout)),
