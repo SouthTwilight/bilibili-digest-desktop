@@ -1,6 +1,6 @@
 <script setup>
 import { ref, watch } from "vue";
-import { currentVideo, videoDetails, transcript, analysis, progress } from "../store.js";
+import { currentVideo, videoDetails, transcript, analysis } from "../store.js";
 
 const loading = ref(false);
 const error = ref("");
@@ -13,7 +13,6 @@ watch(
     analysis.value = null;
     error.value = "";
     loading.value = false;
-    progress.visible = false;
   },
 );
 
@@ -21,7 +20,6 @@ async function generate() {
   if (!currentVideo.value) return;
   error.value = "";
   loading.value = true;
-  progress.visible = false;
   try {
     const result = await window.desktop.analyzeDigest(
       currentVideo.value.bvid,
@@ -33,19 +31,14 @@ async function generate() {
     error.value = e.message;
   } finally {
     loading.value = false;
-    progress.visible = false;
   }
 }
 
 function seek(seconds) {
   window.desktop.seekVideo(seconds);
 }
-
-window.desktop?.onDigestProgress?.((p) => {
-  progress.title = p.title || "";
-  progress.subtitle = p.subtitle || "";
-  progress.visible = !!(p.title || p.subtitle);
-});
+// Progress events (digest:progress) are consumed app-level in App.vue — the
+// global running card is the single renderer of store.progress.
 </script>
 
 <template>
@@ -55,11 +48,6 @@ window.desktop?.onDigestProgress?.((p) => {
     <div v-if="!analysis && !loading && !error" class="placeholder">
       还没有这个视频的总结。
       <button class="btn" style="margin-top: 12px" @click="generate">生成 AI 总结</button>
-    </div>
-
-    <div v-if="progress.visible" class="progress-note">
-      {{ progress.title }}
-      <span v-if="progress.subtitle"> · {{ progress.subtitle }}</span>
     </div>
 
     <div v-if="loading && !analysis" class="placeholder">

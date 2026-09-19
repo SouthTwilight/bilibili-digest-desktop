@@ -83,8 +83,6 @@ async function runSummarize() {
     if (result.success) {
       summarizeStatus.value = "✓ 已生成 AI 总结";
       await refresh();
-      // Auto-open the summary for immediate feedback.
-      openWithDefaultApp(result.file);
     } else {
       summarizeStatus.value = `⚠️ ${result.error || "总结失败"}`;
     }
