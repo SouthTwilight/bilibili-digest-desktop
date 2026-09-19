@@ -1,10 +1,10 @@
-import { app, BrowserWindow, WebContentsView, shell, session, ipcMain, Tray, Menu, dialog } from "electron";
+import { app, BrowserWindow, WebContentsView, shell, session, ipcMain, Tray, Menu, dialog, Notification } from "electron";
 import { join } from "node:path";
 import { registerIpcHandlers } from "./ipc.js";
 import { createSettingsStore } from "./core/settings-store.js";
 import { createDigestCache } from "./core/digest-cache.js";
 import { createNotesStore } from "./core/notes.js";
-import { createExportQueue } from "./core/export-queue.js";
+import { createExportQueue, buildFinishedNotice } from "./core/export-queue.js";
 import { initBilibiliHttp } from "./core/http.js";
 import { initFingerprintCapture } from "./core/cdp-fingerprint.js";
 import { parseVideoPageUrl } from "./core/bilibili.js";
@@ -315,8 +315,28 @@ app.whenReady().then(() => {
   const exportQueue = createExportQueue({
     settingsStore,
     digestCache,
-    onTaskUpdate: (task) =>
-      mainWindow?.webContents.send("export:task-update", task),
+    onTaskUpdate: (task) => {
+      mainWindow?.webContents.send("export:task-update", task);
+      // Completion notice: in-app toast when the window is fronted, a system
+      // notification (click = restore + jump to tasks) when trayed/minimized.
+      const notice = buildFinishedNotice(task);
+      if (!notice) return;
+      if (mainWindow && mainWindow.isVisible() && !mainWindow.isMinimized()) {
+        mainWindow.webContents.send("export:finished", notice);
+        return;
+      }
+      try {
+        const notification = new Notification({ title: "Bilibili Digest", body: notice.title });
+        notification.on("click", () => {
+          mainWindow?.show();
+          mainWindow?.focus();
+          mainWindow?.webContents.send("export:navigate-tasks");
+        });
+        notification.show();
+      } catch (error) {
+        console.warn("[export] system notification failed:", error.message);
+      }
+    },
   });
   // App-level modals (collection export, explanations) live in the window
   // page, which the browser view would otherwise cover — hide the view while
