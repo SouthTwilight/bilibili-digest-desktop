@@ -204,6 +204,22 @@ html {
 
 .btn:hover { background: var(--pink-strong); }
 
+/* Tactile press feedback: shrink + darken on :active, 80ms both ways. */
+.btn {
+  transition: transform 0.08s ease, filter 0.08s ease, background 0.12s ease;
+}
+.btn:active {
+  transform: scale(0.93);
+  filter: brightness(0.88);
+}
+.note-del {
+  transition: transform 0.08s ease, filter 0.08s ease, color 0.12s ease;
+}
+.note-del:active {
+  transform: scale(0.85);
+  filter: brightness(0.88);
+}
+
 .btn.ghost {
   background: var(--surface);
   color: var(--ink);
