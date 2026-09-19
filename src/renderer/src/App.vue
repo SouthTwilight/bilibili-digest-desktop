@@ -1,12 +1,12 @@
 <script setup>
-import { onMounted, onUnmounted, ref } from "vue";
+import { onMounted, onUnmounted, ref, computed } from "vue";
 import SettingsView from "./views/SettingsView.vue";
 import OverviewView from "./views/OverviewView.vue";
 import TranscriptView from "./views/TranscriptView.vue";
 import NotesView from "./views/NotesView.vue";
 import LibraryView from "./views/LibraryView.vue";
 import TasksView from "./views/TasksView.vue";
-import { currentVideo, videoDetails, transcript } from "./store.js";
+import { currentVideo, videoDetails, transcript, progress } from "./store.js";
 
 const tabs = [
   { id: "overview", label: "摘要" },
@@ -30,8 +30,17 @@ function dismissFinishedNotice() {
   clearTimeout(finishedTimer);
   finishedNotice.value = null;
 }
-function goTasksFromNotice() {
-  active.value = "tasks";
+const noticeActionLabel = computed(() =>
+  finishedNotice.value?.kind === "summary" ? "打开" : "查看",
+);
+function runNoticeAction() {
+  const notice = finishedNotice.value;
+  if (!notice) return;
+  if (notice.kind === "summary") {
+    if (notice.file) window.desktop.openWithDefaultApp(notice.file);
+  } else {
+    active.value = "tasks";
+  }
   dismissFinishedNotice();
 }
 
@@ -64,6 +73,16 @@ onMounted(async () => {
     window.desktop.onNavigateTasks(() => {
       active.value = "tasks";
     }),
+  );
+  off.push(
+    window.desktop.onDigestProgress((p) => {
+      progress.title = p.title || "";
+      progress.subtitle = p.subtitle || "";
+      progress.visible = !!(p.title || p.subtitle);
+    }),
+  );
+  off.push(
+    window.desktop.onSummaryFinished((notice) => showFinishedNotice(notice)),
   );
 
   // First-run onboarding: pick a save directory, then log in on the right.
@@ -201,8 +220,20 @@ const navHome = () => window.desktop.navHome();
 
     <div v-if="finishedNotice" class="finished-toast" :class="{ failed: !finishedNotice.ok }">
       <span class="finished-toast-title">{{ finishedNotice.title }}</span>
-      <button class="btn ghost small" @click="goTasksFromNotice">查看</button>
+      <button
+        v-if="!(finishedNotice.kind === 'summary' && !finishedNotice.file)"
+        class="btn ghost small"
+        @click="runNoticeAction"
+      >{{ noticeActionLabel }}</button>
       <button class="finished-toast-close" @click="dismissFinishedNotice">×</button>
+    </div>
+
+    <div v-if="progress.visible" class="running-card">
+      <span class="running-dot"></span>
+      <div class="running-text">
+        <b>{{ progress.title }}</b>
+        <span v-if="progress.subtitle">{{ progress.subtitle }}</span>
+      </div>
     </div>
   </div>
 </template>
@@ -211,7 +242,7 @@ const navHome = () => window.desktop.navHome();
 .finished-toast {
   position: fixed;
   right: 20px;
-  bottom: 20px;
+  bottom: 84px;
   z-index: 120;
   display: flex;
   align-items: center;
@@ -241,5 +272,42 @@ const navHome = () => window.desktop.navHome();
 }
 .finished-toast-close:active {
   transform: scale(0.85);
+}
+.running-card {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 119;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 14px;
+  box-shadow: 0 10px 30px rgba(24, 25, 28, 0.2);
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.running-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--pink);
+  animation: running-pulse 1.2s ease-in-out infinite;
+  flex: none;
+}
+@keyframes running-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+.running-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.running-text span {
+  color: var(--muted);
+  font-size: 12px;
 }
 </style>
