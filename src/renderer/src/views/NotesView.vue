@@ -1,6 +1,6 @@
 <script setup>
 import { ref, watch, onMounted } from "vue";
-import { currentVideo } from "../store.js";
+import { currentVideo, showAppNotice } from "../store.js";
 import { takeNoteAt, videoNoteContext } from "../notes-service.js";
 
 const notes = ref([]);
@@ -48,10 +48,13 @@ async function exportNotes() {
   try {
     const context = await videoNoteContext();
     const result = await window.desktop.exportNotes(context);
-    toast.value = result.success ? "📄 笔记已整理，见「导出库」" : `⚠️ ${result.error}`;
+    if (result.success) {
+      showAppNotice({ kind: "notes", ok: true, title: "笔记已整理完成", file: result.file || null });
+    } else {
+      showAppNotice({ ok: false, title: `笔记整理失败：${result.error || "未知错误"}` });
+    }
   } finally {
     saving.value = false;
-    setTimeout(() => (toast.value = ""), 2600);
   }
 }
 

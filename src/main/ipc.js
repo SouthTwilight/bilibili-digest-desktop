@@ -121,6 +121,10 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
       return transcript;
     } catch (error) {
       return { success: false, error: error.message };
+    } finally {
+      // The global running card only clears on this empty-title tick —
+      // without it the card sticks after a finished ASR/subtitle fetch.
+      pushProgress({ phase: "transcript", title: "", subtitle: "" });
     }
   });
 
@@ -158,6 +162,12 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
       pushProgress({ phase: "analysis", title: "正在生成 AI 总结", subtitle: "长视频通常需要一到两分钟" });
       const details = (cached?.details?.title ? cached.details : null) || (await getVideoDetails(videoId));
       const result = await analyzeTranscript({ settings, videoDetails: details, transcript });
+      notifyUser?.(
+        result.success
+          ? { kind: "analysis", ok: true, title: "AI 摘要已生成" }
+          : { kind: "analysis", ok: false, title: `AI 摘要生成失败：${result.message || result.error || "未知错误"}` },
+        { foregroundEvent: "analysis:finished", trayClickEvent: "analysis:finished" },
+      );
       if (result.success) {
         digestCache.save(cacheKey, {
           ...(transcript.source === "bilibili-subtitle"
@@ -169,6 +179,10 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
       }
       return result;
     } catch (error) {
+      notifyUser?.(
+        { kind: "analysis", ok: false, title: `AI 摘要生成失败：${error.message || "未知错误"}` },
+        { foregroundEvent: "analysis:finished", trayClickEvent: "analysis:finished" },
+      );
       if (error.status === 401) {
         return { success: false, error: "INVALID_AI_KEY", message: "API key 被拒绝，请检查设置。" };
       }
@@ -233,7 +247,12 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
 
   ipcMain.handle("transcript:translate", async (_event, { videoTitle, segments }) => {
     const settings = settingsStore.load();
-    return translateTranscriptBatch({ settings, videoTitle, segments });
+    pushProgress({ phase: "translation", title: "正在翻译字幕", subtitle: "生成双语对照" });
+    try {
+      return await translateTranscriptBatch({ settings, videoTitle, segments });
+    } finally {
+      pushProgress({ phase: "translation", title: "", subtitle: "" });
+    }
   });
 
   ipcMain.handle("explain", async (_event, { videoTitle, selectedText, transcriptContext }) => {

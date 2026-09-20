@@ -21,13 +21,15 @@ const htmlFullscreen = ref(false);
 
 const finishedNotice = appNotice;
 const noticeActionLabel = computed(() =>
-  finishedNotice.value?.kind === "summary" ? "打开" : "查看",
+  finishedNotice.value?.kind === "summary" || finishedNotice.value?.kind === "notes" ? "打开" : "查看",
 );
 function runNoticeAction() {
   const notice = finishedNotice.value;
   if (!notice) return;
-  if (notice.kind === "summary") {
+  if (notice.kind === "summary" || notice.kind === "notes") {
     if (notice.file) window.desktop.openWithDefaultApp(notice.file);
+  } else if (notice.kind === "analysis") {
+    active.value = "overview";
   } else {
     active.value = "tasks";
   }
@@ -73,6 +75,9 @@ onMounted(async () => {
   );
   off.push(
     window.desktop.onSummaryFinished((notice) => showAppNotice(notice)),
+  );
+  off.push(
+    window.desktop.onAnalysisFinished((notice) => showAppNotice(notice)),
   );
 
   // First-run onboarding: pick a save directory, then log in on the right.
@@ -211,7 +216,7 @@ const navHome = () => window.desktop.navHome();
     <div v-if="finishedNotice" class="finished-toast" :class="{ failed: !finishedNotice.ok }">
       <span class="finished-toast-title">{{ finishedNotice.title }}</span>
       <button
-        v-if="!(finishedNotice.kind === 'summary' && !finishedNotice.file)"
+        v-if="!((finishedNotice.kind === 'summary' || finishedNotice.kind === 'notes') && !finishedNotice.file)"
         class="btn ghost small"
         @click="runNoticeAction"
       >{{ noticeActionLabel }}</button>
