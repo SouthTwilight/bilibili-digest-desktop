@@ -241,11 +241,14 @@ const navHome = () => window.desktop.navHome();
 <style scoped>
 /* Left edge only: the Bilibili WebContentsView natively overlays the window
  * right of the sidebar, so any fixed notice rendered there is invisible.
- * Toasts must stay inside the sidebar column to be seen. */
+ * Toasts must stay inside the sidebar column to be seen — bounded by
+ * --sidebar-width, long titles wrap instead of stretching into the overlay. */
 .finished-toast {
   position: fixed;
   left: 20px;
   bottom: 84px;
+  max-width: calc(var(--sidebar-width, 480px) - 40px);
+  box-sizing: border-box;
   z-index: 120;
   display: flex;
   align-items: center;
@@ -264,6 +267,12 @@ const navHome = () => window.desktop.navHome();
 }
 .finished-toast-title {
   margin-right: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.finished-toast .btn,
+.finished-toast-close {
+  flex: none;
 }
 .finished-toast-close {
   border: none;
@@ -280,6 +289,8 @@ const navHome = () => window.desktop.navHome();
   position: fixed;
   left: 20px;
   bottom: 20px;
+  max-width: calc(var(--sidebar-width, 480px) - 40px);
+  box-sizing: border-box;
   z-index: 119;
   display: flex;
   align-items: center;
@@ -308,6 +319,8 @@ const navHome = () => window.desktop.navHome();
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .running-text span {
   color: var(--muted);
