@@ -6,7 +6,7 @@ import TranscriptView from "./views/TranscriptView.vue";
 import NotesView from "./views/NotesView.vue";
 import LibraryView from "./views/LibraryView.vue";
 import TasksView from "./views/TasksView.vue";
-import { currentVideo, videoDetails, transcript, progress } from "./store.js";
+import { currentVideo, videoDetails, transcript, progress, appNotice, showAppNotice, dismissAppNotice } from "./store.js";
 
 const tabs = [
   { id: "overview", label: "摘要" },
@@ -19,17 +19,7 @@ const tabs = [
 const active = ref("settings");
 const htmlFullscreen = ref(false);
 
-const finishedNotice = ref(null);
-let finishedTimer = null;
-function showFinishedNotice(notice) {
-  finishedNotice.value = notice;
-  clearTimeout(finishedTimer);
-  finishedTimer = setTimeout(() => (finishedNotice.value = null), 6000);
-}
-function dismissFinishedNotice() {
-  clearTimeout(finishedTimer);
-  finishedNotice.value = null;
-}
+const finishedNotice = appNotice;
 const noticeActionLabel = computed(() =>
   finishedNotice.value?.kind === "summary" ? "打开" : "查看",
 );
@@ -41,7 +31,7 @@ function runNoticeAction() {
   } else {
     active.value = "tasks";
   }
-  dismissFinishedNotice();
+  dismissAppNotice();
 }
 
 const nav = ref({ url: "", canGoBack: false, canGoForward: false });
@@ -82,7 +72,7 @@ onMounted(async () => {
     }),
   );
   off.push(
-    window.desktop.onSummaryFinished((notice) => showFinishedNotice(notice)),
+    window.desktop.onSummaryFinished((notice) => showAppNotice(notice)),
   );
 
   // First-run onboarding: pick a save directory, then log in on the right.
@@ -225,7 +215,7 @@ const navHome = () => window.desktop.navHome();
         class="btn ghost small"
         @click="runNoticeAction"
       >{{ noticeActionLabel }}</button>
-      <button class="finished-toast-close" @click="dismissFinishedNotice">×</button>
+      <button class="finished-toast-close" @click="dismissAppNotice">×</button>
     </div>
 
     <div v-if="progress.visible" class="running-card">

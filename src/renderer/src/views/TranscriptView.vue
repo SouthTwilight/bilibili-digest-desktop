@@ -1,6 +1,6 @@
 <script setup>
 import { ref, watch, computed, nextTick, onUnmounted } from "vue";
-import { currentVideo, videoDetails, transcript, progress } from "../store.js";
+import { currentVideo, videoDetails, transcript, progress, showAppNotice } from "../store.js";
 
 const loading = ref(false);
 const error = ref("");
@@ -27,7 +27,7 @@ async function exportSingleNow() {
   exporting.value = true;
   // Feedback fires immediately — the collection probe inside the IPC handler
   // can take seconds and must not leave the click feeling dead.
-  showToast("已加入导出队列，见「任务」页");
+  showAppNotice({ kind: "export", ok: true, title: "已加入任务队列：单视频导出" });
   try {
     // Export what the user is actually looking at: the displayed transcript's
     // source picks the queue item's source mode, and the current track
@@ -35,12 +35,12 @@ async function exportSingleNow() {
     const source = transcript.value?.source === "bilibili-subtitle" ? "subtitle" : "asr";
     const result = await window.desktop.exportSingle(currentVideo.value.bvid, currentVideo.value.page, exportFormat.value, source, lastLoadTrack);
     if (result && result.success === false) {
-      showToast(`⚠️ ${result.error || "导出失败"}`);
+      showAppNotice({ ok: false, title: `导出失败：${result.error || "未知错误"}` });
       return;
     }
     error.value = "";
   } catch (e) {
-    showToast(`⚠️ ${e.message || "导出失败"}`);
+    showAppNotice({ ok: false, title: `导出失败：${e.message || "未知错误"}` });
   } finally {
     exporting.value = false;
   }
@@ -52,17 +52,17 @@ async function exportSingleNow() {
 async function exportAllPagesNow() {
   if (!currentVideo.value || exporting.value) return;
   exporting.value = true;
-  showToast("已加入导出队列（全部P合并为一份文档），见「任务」页");
+  showAppNotice({ kind: "export", ok: true, title: "已加入任务队列：全部P合并导出" });
   try {
     const source = transcript.value?.source === "bilibili-subtitle" ? "subtitle" : "asr";
     const result = await window.desktop.exportSingle(currentVideo.value.bvid, currentVideo.value.page, exportFormat.value, source, lastLoadTrack, true);
     if (result && result.success === false) {
-      showToast(`⚠️ ${result.error || "导出失败"}`);
+      showAppNotice({ ok: false, title: `导出失败：${result.error || "未知错误"}` });
       return;
     }
     error.value = "";
   } catch (e) {
-    showToast(`⚠️ ${e.message || "导出失败"}`);
+    showAppNotice({ ok: false, title: `导出失败：${e.message || "未知错误"}` });
   } finally {
     exporting.value = false;
   }
@@ -123,26 +123,17 @@ async function confirmCollectionExport() {
     const result = await window.desktop.exportCollectionConfirm(modal.collectionTitle, exportFormat.value, items);
     collectionModal.value = null;
     if (result && result.success === false) {
-      showToast(`⚠️ ${result.error || "导出失败"}`);
+      showAppNotice({ ok: false, title: `合集导出失败：${result.error || "未知错误"}` });
       return;
     }
-    showToast(`已加入导出队列（${items.length} 个视频），见「任务」页`);
+    showAppNotice({ kind: "export", ok: true, title: `已加入任务队列：合集导出（${items.length} 个视频）` });
   } catch (e) {
     collectionModal.value = null;
-    showToast(`⚠️ ${e.message || "导出失败"}`);
+    showAppNotice({ ok: false, title: `合集导出失败：${e.message || "未知错误"}` });
   } finally {
     exporting.value = false;
   }
 }
-
-let toastTimer = null;
-const toast = ref("");
-function showToast(text) {
-  toast.value = text;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (toast.value = ""), 2600);
-}
-
 // App-level modals render in the window page, which the browser view covers;
 // hide the view while either modal (collection export / explanation) is open.
 watch(
@@ -452,8 +443,6 @@ function seek(seconds) {
       <button class="btn ghost" @click="explainState.visible = false">关闭</button>
     </div>
   </div>
-
-  <div v-if="toast" class="note-toast">{{ toast }}</div>
 
   <div v-if="collectionModal" class="explain-overlay" @click.self="collectionModal = null">
     <div class="explain-dialog" style="max-width: 480px">
