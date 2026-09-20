@@ -89,7 +89,12 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate }) 
       const settings = settingsStore.load();
       // One view fetch serves both the metadata and the multi-P page list.
       const view = await fetchBilibiliView(item.bvid).catch(() => null);
-      const pages = item.allPages && view?.pages?.length ? view.pages : null;
+      // Collection exports cover every part of multi-P videos (one merged
+      // document) — decided here at run time instead of a slow pre-enqueue
+      // probe; single-video exports keep their explicit allPages choice.
+      const wantsAllPages =
+        item.allPages || (task.type === "collection" && (view?.pages?.length || 0) > 1);
+      const pages = wantsAllPages && view?.pages?.length ? view.pages : null;
 
       // Source resolution: ASR exports reuse the paid cache slot; subtitle
       // exports always fetch fresh (subtitles are cheap, uncached API calls

@@ -344,23 +344,18 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
     }
   });
 
-  // Multi-P videos inside a collection used to export ONLY P1 — pages beyond
-  // the first were silently dropped. Before enqueueing, probe each selected
-  // video: multi-P items are marked allPages so the queue exports one merged
-  // whole-video document instead. A failed probe degrades to the old
-  // single-part behavior rather than blocking the export.
-  ipcMain.handle("export:collection-confirm", async (_event, { collectionTitle, format, items }) => {
-    const expanded = await Promise.all(
-      (Array.isArray(items) ? items : []).map(async (item) => {
-        const view = await fetchBilibiliView(item.bvid).catch(() => null);
-        return view?.pages?.length > 1 ? { ...item, allPages: true } : { ...item };
-      }),
-    );
+  // Enqueueing must be instant so the modal closes and the task appears
+  // immediately — the per-video multi-P probe that used to run here blocked
+  // for minutes on large collections with no visible progress. Multi-P
+  // detection now happens at run time inside the queue (runItem already
+  // fetches each view): collection items of multi-P videos export one merged
+  // whole-video document, single-video exports keep their explicit choice.
+  ipcMain.handle("export:collection-confirm", (_event, { collectionTitle, format, items }) => {
     return exportQueue.enqueue({
       type: "collection",
       collectionTitle: collectionTitle || "",
       format: format === "html" ? "html" : "md",
-      items: expanded,
+      items: Array.isArray(items) ? items : [],
     });
   });
 

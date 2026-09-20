@@ -69,9 +69,12 @@ async function exportAllPagesNow() {
 }
 
 async function openCollectionExport() {
-  if (!currentVideo.value) return;
-  collectionModal.value = { collectionTitle: "", videos: [], error: "" };
+  if (!currentVideo.value || exporting.value) return;
+  collectionModal.value = { collectionTitle: "", videos: [], error: "", loading: true };
   const result = await window.desktop.exportCollectionPreview(currentVideo.value.bvid);
+  // The modal may have been closed while the list was loading.
+  if (!collectionModal.value) return;
+  collectionModal.value.loading = false;
   if (!result.success) {
     collectionModal.value.error = result.error;
     return;
@@ -102,6 +105,7 @@ function batchSetSource(source) {
 
 async function confirmCollectionExport() {
   const modal = collectionModal.value;
+  if (!modal || modal.loading || exporting.value) return;
   const items = modal.videos
     .filter((video) => video.selected)
     .map((video) => ({
@@ -406,7 +410,7 @@ function seek(seconds) {
         :disabled="exporting"
         @click="exportAllPagesNow"
       >导出全部P</button>
-      <button v-if="collectionInfo" class="btn small" @click="openCollectionExport">导出合集</button>
+      <button v-if="collectionInfo" class="btn small" :disabled="exporting" @click="openCollectionExport">导出合集</button>
     </div>
 
     <!-- original mode: per-line, clickable timestamps -->
@@ -459,8 +463,9 @@ function seek(seconds) {
       </template>
       <template v-else>
         <div class="collection-export-status">
-          《{{ collectionModal.collectionTitle }}》共 {{ collectionModal.videos.length }} 个视频。
-          默认使用 B站字幕；也可逐个或批量改为 ASR。B站字幕获取失败的任务可在任务页改用 ASR 重试。
+          <template v-if="collectionModal.loading">正在获取合集视频列表，请稍候…</template>
+          <template v-else>《{{ collectionModal.collectionTitle }}》共 {{ collectionModal.videos.length }} 个视频。
+          默认使用 B站字幕；也可逐个或批量改为 ASR。B站字幕获取失败的任务可在任务页改用 ASR 重试。</template>
         </div>
         <div class="collection-export-toolbar">
           <label class="collection-export-select-all">
@@ -482,7 +487,7 @@ function seek(seconds) {
         </div>
         <div style="display: flex; gap: 8px; justify-content: flex-end">
           <button class="btn ghost" @click="collectionModal = null">取消</button>
-          <button class="btn" :disabled="exporting || !collectionModal.videos.some(v => v.selected)" @click="confirmCollectionExport">
+          <button class="btn" :disabled="collectionModal.loading || exporting || !collectionModal.videos.some(v => v.selected)" @click="confirmCollectionExport">
             开始导出（{{ collectionModal.videos.filter(v => v.selected).length }} 个）</button>
         </div>
       </template>
