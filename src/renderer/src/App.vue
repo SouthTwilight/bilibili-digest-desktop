@@ -239,9 +239,12 @@ const navHome = () => window.desktop.navHome();
 </template>
 
 <style scoped>
+/* Left edge only: the Bilibili WebContentsView natively overlays the window
+ * right of the sidebar, so any fixed notice rendered there is invisible.
+ * Toasts must stay inside the sidebar column to be seen. */
 .finished-toast {
   position: fixed;
-  right: 20px;
+  left: 20px;
   bottom: 84px;
   z-index: 120;
   display: flex;
@@ -275,7 +278,7 @@ const navHome = () => window.desktop.navHome();
 }
 .running-card {
   position: fixed;
-  right: 20px;
+  left: 20px;
   bottom: 20px;
   z-index: 119;
   display: flex;
