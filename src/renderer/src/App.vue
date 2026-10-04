@@ -48,6 +48,21 @@ onMounted(async () => {
   }));
   off.push(
     window.desktop.onVideoChanged(async (video) => {
+      // The player SPA fires a second navigation event (in-page
+      // replaceState for tracking params) for the SAME video shortly
+      // after load. Letting it through blanked the already-rendered
+      // subtitles and refetched them — the flash-then-blank flicker.
+      // A duplicate with subtitles on screen is ignored; a failed load
+      // leaves transcript null, so genuinely reopening the video to
+      // retry still works.
+      if (
+        video &&
+        currentVideo.value?.bvid === video.bvid &&
+        currentVideo.value?.page === video.page &&
+        transcript.value
+      ) {
+        return;
+      }
       currentVideo.value = video;
       videoDetails.value = null;
       transcript.value = null;

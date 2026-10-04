@@ -178,17 +178,17 @@ function playerWbiV2Url(aid, cid) {
 async function fetchSubtitleTrackList(aid, cid) {
   const url = await wbiSignedUrl(playerWbiV2Url(aid, cid));
 
-  // Bilibili intermittently soft-throttles the player API with an empty
-  // subtitle list. Retry a couple of times with a short delay before
-  // reporting "no subtitles".
+  // With wbi signing + device-fingerprint params the degraded-pool empty
+  // list is essentially gone; keep one quick retry as a thin safety net
+  // (kept sub-second so subtitle-less videos don't stall the UI).
   let payload = null;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     const response = await bilibiliFetch(url);
     payload = await response.json();
     const subtitles = payload?.data?.subtitle?.subtitles || [];
     if (payload?.code === 0 && subtitles.length) return subtitles;
     if (payload && payload.code !== 0) break;
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 300));
   }
 
   if (!payload || payload.code !== 0) {
@@ -229,10 +229,10 @@ function pickSubtitleTrack(subtitles, trackPref) {
 
 export async function fetchBilibiliSubtitleTranscript(videoId, aid, cid, expectedDurationSeconds = 0, trackPref = "ai") {
   // Bilibili's CDN intermittently serves a WRONG video's subtitle file for
-  // the right URL (observed with identical requests from one context
-  // succeeding and another receiving cross-wired content). The only reliable
-  // client-side defense: validate the transcript's span against the video's
-  // real duration and refetch; a mismatched file never reaches the UI.
+  // the right URL. The duration-span check below keeps mismatched content
+  // out of the UI; with fingerprint-authenticated requests cross-wiring is
+  // rare, so the refetch loop is short and sub-second rather than a
+  // multi-second stall.
   const durationOk = (transcript) => {
     if (!expectedDurationSeconds || !transcript?.success) return true;
     const last = transcript.transcript[transcript.transcript.length - 1];
@@ -242,7 +242,7 @@ export async function fetchBilibiliSubtitleTranscript(videoId, aid, cid, expecte
 
   try {
     let lastMismatch = false;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
       const subtitles = await fetchSubtitleTrackList(aid, cid);
       const preferred = pickSubtitleTrack(subtitles, trackPref);
       if (!preferred?.subtitle_url) {
@@ -270,7 +270,7 @@ export async function fetchBilibiliSubtitleTranscript(videoId, aid, cid, expecte
       );
       if (durationOk(transcript)) return transcript;
       lastMismatch = true;
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      await new Promise((resolve) => setTimeout(resolve, 250));
     }
     return {
       success: false,
