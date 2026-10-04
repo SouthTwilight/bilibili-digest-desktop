@@ -24,5 +24,9 @@
     "electron-vite": "^4.0.0",
     "sharp": "^0.35.3",
     "vite": "^7.0.0"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true
   }
 }
