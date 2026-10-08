@@ -1,19 +1,15 @@
 import { ipcMain, dialog, shell, BrowserWindow } from "electron";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname, basename, extname } from "node:path";
 import { fetchTranscript } from "./core/transcript-service.js";
 import { getVideoDetails, getCollectionInfo, collectionVideosFromView, fetchBilibiliView } from "./core/bilibili.js";
-import { analyzeTranscript, requestAiCompletion, loadPromptSection } from "./core/ai.js";
-import {
-  splitDocIntoChunks,
-  sanitizeFocus,
-  buildSynthesisFocusInstruction,
-  buildSummaryNotice,
-} from "./core/summarize-doc.js";
+import { analyzeTranscript } from "./core/ai.js";
+import { sanitizeFocus } from "./core/summarize-doc.js";
 import { translateTranscriptBatch } from "./core/translation.js";
 import { explainSelection, cleanupNoteText } from "./core/explain.js";
-import { scanLibrary, readLibraryFile } from "./core/library.js";
-import { exportFileName, sanitizeName } from "./core/export-render.js";
+import { scanLibrary, readLibraryFile, scanCollectionForSummary } from "./core/library.js";
+import { exportFileName } from "./core/export-render.js";
+import { packSummaries } from "./core/summary-pack.js";
 
 function pushProgress(payload) {
   BrowserWindow.getAllWindows()[0]?.webContents.send("digest:progress", payload);
@@ -401,111 +397,64 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
     return result ? { success: false, error: result } : { success: true };
   });
 
-  // Summarize a library markdown document with the configured text model and
-  // store the result next to it as AI总结_视频名.md.
-  ipcMain.handle("library:summarize", async (_event, { filePath, focus }) => {
-    const base = settingsStore.load().saveDir;
-    if (!String(filePath || "").startsWith(String(base || "\u0000"))) {
-      return { success: false, error: "文件不在当前保存目录内。" };
+  // ---- AI summary queue / packaging ----------------------------------------
+
+  // Display title for a queued summary item: the export file name minus its
+  // timestamp/part suffixes. The output file name is derived from the doc's
+  // H1 at run time (summarizeExportedDoc).
+  function summaryItemTitle(filePath) {
+    return basename(filePath, extname(filePath))
+      .replace(/[_-]\d{4}-\d{2}-\d{2}_\d{2}-\d{2}$/, "")
+      .replace(/_P\d+$/, "")
+      .replace(/_全部P$/, "")
+      .slice(0, 60);
+  }
+
+  // Enumerate a collection's video folders from disk (fast, no network) for
+  // the batch-summarize picker: newest export per video + summary existence.
+  ipcMain.handle("summary:batch-preview", (_event, { collectionPath }) =>
+    scanCollectionForSummary(settingsStore.load().saveDir, collectionPath),
+  );
+
+  // Enqueue AI summaries (single file or collection batch). Instant — the
+  // work runs in the task queue and reports progress to the tasks page.
+  ipcMain.handle("summary:enqueue", (_event, { collectionTitle = "", items, focus = "" }) => {
+    const settings = settingsStore.load();
+    if (!settings.aiApiKeys[settings.provider]) {
+      return { success: false, error: "未配置文本模型 API Key，请先到设置页填写。" };
     }
-    try {
-      const content = readFileSync(filePath, "utf8");
-      const titleMatch = content.match(/^#\s+(.+)$/m);
-      const videoName = (titleMatch?.[1] || basename(filePath, extname(filePath)))
-        .replace(/[_-]\d{4}-\d{2}-\d{2}_\d{2}-\d{2}$/, "")
-        .slice(0, 60);
-      const settings = settingsStore.load();
-      // User-typed summary direction: sanitize, remember verbatim (empty
-      // included) so the dialog prefills the last direction, and render the
-      // optional prompt block. The placeholder must always be supplied.
-      const userFocus = sanitizeFocus(focus);
-      settingsStore.save({ ...settings, lastSummaryFocus: userFocus });
-      const userFocusBlock = userFocus
-        ? loadPromptSection("summary.md", "User focus block", { userFocus })
-        : "";
-      // Whole-video multi-P exports can exceed the model's context window.
-      // Split at section boundaries, summarize each chunk with the same
-      // four-layer prompt, then synthesize — no silent truncation.
-      const chunks = splitDocIntoChunks(content, 100_000);
-      let text;
-      if (chunks.length <= 1) {
-        pushProgress({ phase: "summary", title: "正在生成 AI 总结", subtitle: "长文档需要一两分钟" });
-        const systemPrompt = loadPromptSection("summary.md", "System prompt", {
-          title: videoName,
-          content,
-          userFocusBlock,
-        });
-        text = await requestAiCompletion({
-          settings,
-          maxTokens: 8192,
-          messages: [{ role: "user", content: systemPrompt }],
-        });
-      } else {
-        const partSummaries = [];
-        for (let i = 0; i < chunks.length; i += 1) {
-          pushProgress({
-            phase: "summary",
-            title: "正在生成 AI 总结",
-            subtitle: `长文档已分 ${chunks.length} 块，正在总结第 ${i + 1}/${chunks.length} 块`,
-          });
-          const systemPrompt = loadPromptSection("summary.md", "System prompt", {
-            title: `${videoName}（第 ${i + 1}/${chunks.length} 块）`,
-            content: chunks[i],
-            userFocusBlock,
-          });
-          partSummaries.push(
-            await requestAiCompletion({
-              settings,
-              maxTokens: 8192,
-              messages: [{ role: "user", content: systemPrompt }],
-            }),
-          );
-        }
-        pushProgress({ phase: "summary", title: "正在汇总各块总结", subtitle: "最后一步" });
-        const focusInstruction = buildSynthesisFocusInstruction(userFocus);
-        text = await requestAiCompletion({
-          settings,
-          maxTokens: 8192,
-          messages: [
-            {
-              role: "user",
-              content:
-                `以下是一份长文档（约 ${content.length} 字符）按顺序分块总结的结果。请把它们综合成一份完整的总结文档，` +
-                "遵循与分块总结相同的结构（快速概览 / 结构化深度总结 / 总结与行动项）：合并各块中重复的主题，" +
-                "按内容自然脉络重新组织分节，保留所有时间戳链接和关键原话，不要遗漏任何一块的要点。" +
-                focusInstruction +
-                "\n\n" +
-                partSummaries.map((s, i) => `--- 第 ${i + 1} 块总结 ---\n${s}`).join("\n\n"),
-            },
-          ],
-        });
-      }
-      // Titles ride straight into the output filename; Windows-illegal
-      // characters in them (e.g. "AI游戏开发速成课|AI生成...") used to make
-      // writeFileSync fail with ENOENT. The prompt keeps the raw title.
-      const outFile = join(
-        dirname(filePath),
-        `AI总结_${sanitizeName(videoName) || "未命名"}.md`,
-      );
-      writeFileSync(outFile, text.trim() + "\n", "utf8");
-      notifyUser?.(
-        buildSummaryNotice({ success: true, videoName, file: outFile }),
-        { foregroundEvent: "summary:finished", trayClickEvent: "summary:finished" },
-      );
-      return { success: true, file: outFile };
-    } catch (error) {
-      notifyUser?.(
-        buildSummaryNotice({ success: false, error: error.message }),
-        { foregroundEvent: "summary:finished", trayClickEvent: "summary:finished" },
-      );
-      if (error.code === "NO_AI_KEY") {
-        return { success: false, error: "未配置文本模型 API Key，请先到设置页填写。" };
-      }
-      return { success: false, error: error.message };
-    } finally {
-      pushProgress({ phase: "summary", title: "", subtitle: "" });
-    }
+    const base = settings.saveDir;
+    const safeItems = (Array.isArray(items) ? items : [])
+      .filter((item) => String(item?.filePath || "").startsWith(String(base || "\u0000")))
+      .map((item) => ({
+        title: item.title || summaryItemTitle(item.filePath),
+        filePath: item.filePath,
+        focus: sanitizeFocus(focus),
+      }));
+    if (!safeItems.length) return { success: false, error: "没有可总结的文档。" };
+    // User-typed summary direction: sanitize, remember verbatim (empty
+    // included) so the dialog prefills the last direction.
+    settingsStore.save({ ...settings, lastSummaryFocus: sanitizeFocus(focus) });
+    return exportQueue.enqueueSummary({
+      collectionTitle: collectionTitle || "",
+      items: safeItems,
+    });
   });
+
+  // Retry failed summary items inside the original task.
+  ipcMain.handle("summary:retry", (_event, { taskId, itemIndexes }) =>
+    exportQueue.retrySummary(taskId, itemIndexes),
+  );
+
+  // Pack the AI summaries of selected video folders into a zip at the save
+  // dir root, mirroring the library layout (manifest.json included).
+  ipcMain.handle("summary:pack", (_event, { collectionTitle, videoDirs }) =>
+    packSummaries({
+      saveDir: settingsStore.load().saveDir,
+      collectionTitle: collectionTitle || "",
+      videoDirs: videoDirs || [],
+    }),
+  );
 
   // Hide/show the embedded browser view while an app-level modal is open.
   ipcMain.handle("view:set-visible", (_event, visible) => {

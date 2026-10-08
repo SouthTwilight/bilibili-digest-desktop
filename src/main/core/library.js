@@ -114,4 +114,55 @@ function readLibraryFile(saveDir, filePath) {
   }
 }
 
-export { scanLibrary, readLibraryFile };
+// Enumerate a collection's video folders for batch AI summarization. Each
+// video contributes its newest summarizable export (a plain .md — AI 总结
+// and 笔记 outputs are excluded as inputs) plus whether a summary already
+// exists, so the picker can default to skipping already-summarized videos.
+function scanCollectionForSummary(saveDir, collectionPath) {
+  const base = String(saveDir || "");
+  const target = String(collectionPath || "");
+  if (!base || !target.startsWith(base)) {
+    return { success: false, error: "文件不在当前保存目录内。" };
+  }
+  let entries;
+  try {
+    entries = readdirSync(target, { withFileTypes: true });
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+  const videos = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name === "picture") continue;
+    const dir = join(target, entry.name);
+    let files = [];
+    try {
+      files = readdirSync(dir, { withFileTypes: true })
+        .filter((e) => e.isFile())
+        .map((e) => join(dir, e.name));
+    } catch {
+      continue;
+    }
+    const hasSummary = files.some((file) => /^AI总结_.*\.md$/i.test(basename(file)));
+    // Inputs are plain transcript exports; generated docs (AI总结_/笔记_)
+    // summarize themselves in a loop otherwise.
+    const candidates = files.filter((file) => {
+      const name = basename(file);
+      return (
+        extname(name).toLowerCase() === ".md" && !/^AI总结_/i.test(name) && !/^笔记_/.test(name)
+      );
+    });
+    let newest = null;
+    for (const file of candidates) {
+      let mtime = 0;
+      try {
+        mtime = statSync(file).mtimeMs;
+      } catch {}
+      if (!newest || mtime > newest.mtime) newest = { file, mtime };
+    }
+    videos.push({ name: entry.name, dir, file: newest?.file || null, hasSummary });
+  }
+  videos.sort((a, b) => a.name.localeCompare(b.name));
+  return { success: true, videos };
+}
+
+export { scanLibrary, readLibraryFile, scanCollectionForSummary };

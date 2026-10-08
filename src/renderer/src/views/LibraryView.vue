@@ -1,5 +1,6 @@
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
+import { showAppNotice } from "../store.js";
 
 const tree = ref([]);
 const preview = ref(null); // { kind, name, content }
@@ -11,7 +12,20 @@ async function refresh() {
   loading.value = false;
 }
 
-onMounted(refresh);
+const off = [];
+onMounted(() => {
+  refresh();
+  // New AI总结 files should appear in the tree the moment a summary task
+  // settles — without this the user has to hit 刷新 manually.
+  off.push(
+    window.desktop.onExportTaskUpdate((task) => {
+      if (task.type === "summary" && (task.status === "done" || task.status === "canceled")) {
+        refresh();
+      }
+    }),
+  );
+});
+onUnmounted(() => off.forEach((fn) => fn()));
 
 function toggle(node) {
   node.open = !node.open;
@@ -40,6 +54,8 @@ function openWithDefaultApp(path) {
   window.desktop.openWithDefaultApp(path);
 }
 
+// ---- single-file AI summary (queued like every summary task) --------------
+
 const summarizing = ref(false);
 const summarizeStatus = ref("");
 const focusModal = ref(false);
@@ -50,8 +66,12 @@ function flashStatus(text, ms = 2000) {
   setTimeout(() => (summarizeStatus.value = ""), ms);
 }
 
+function anyModalOpen() {
+  return !!(focusModal.value || batchModal.value || packModal.value);
+}
+
 async function openSummarizeDialog() {
-  if (summarizing.value || !preview.value) return;
+  if (summarizing.value || !preview.value || anyModalOpen()) return;
   // Only markdown documents make sense to summarize.
   if (preview.value.kind !== "md" && !preview.value.name.endsWith(".md")) {
     flashStatus("仅支持 Markdown 文件");
@@ -75,21 +95,158 @@ function closeSummarizeDialog() {
 
 async function runSummarize() {
   if (summarizing.value || !preview.value) return;
-  closeSummarizeDialog();
   summarizing.value = true;
-  summarizeStatus.value = "总结中…";
   try {
-    const result = await window.desktop.summarizeDoc(preview.value.path, focusText.value);
+    const result = await window.desktop.summaryEnqueue("", [{ filePath: preview.value.path }], focusText.value);
     if (result.success) {
-      summarizeStatus.value = "✓ 已生成 AI 总结";
-      await refresh();
+      showAppNotice({
+        kind: "summary",
+        ok: true,
+        title: `已加入任务队列：AI 总结（${result.task?.results?.[0]?.title || "1 个文档"}）`,
+      });
+      closeSummarizeDialog();
     } else {
-      summarizeStatus.value = `⚠️ ${result.error || "总结失败"}`;
+      flashStatus(`⚠️ ${result.error || "入队失败"}`, 3500);
     }
   } finally {
     summarizing.value = false;
-    setTimeout(() => (summarizeStatus.value = ""), 3500);
   }
+}
+
+// ---- collection batch summarize -------------------------------------------
+
+const batchModal = ref(null); // { collection, videos, loading, error, focus }
+const batchSubmitting = ref(false);
+
+async function openBatchSummarize(node) {
+  if (anyModalOpen()) return;
+  window.desktop.setViewVisible(false);
+  batchModal.value = { collection: node, videos: [], loading: true, error: "", focus: "" };
+  try {
+    const settings = await window.desktop.getSettings();
+    batchModal.value.focus = settings.lastSummaryFocus || "";
+  } catch {}
+  const result = await window.desktop.summaryBatchPreview(node.path);
+  // Guard against the modal having been closed while scanning.
+  if (!batchModal.value) return;
+  batchModal.value.loading = false;
+  if (!result.success) {
+    batchModal.value.error = result.error || "读取合集失败";
+    return;
+  }
+  // Default: summarize everything not yet summarized — re-running the ones
+  // that already have an AI总结 is a deliberate opt-in (re-check the row).
+  batchModal.value.videos = result.videos.map((video) => ({
+    ...video,
+    selected: !!video.file && !video.hasSummary,
+  }));
+}
+
+function closeBatchModal() {
+  batchModal.value = null;
+  window.desktop.setViewVisible(true);
+}
+
+const batchPicked = computed(() =>
+  (batchModal.value?.videos || []).filter((video) => video.selected && video.file),
+);
+const batchAllChecked = computed(() => {
+  const eligible = (batchModal.value?.videos || []).filter((video) => video.file);
+  return eligible.length > 0 && eligible.every((video) => video.selected);
+});
+
+function toggleBatchAll() {
+  const target = !batchAllChecked.value;
+  batchModal.value.videos.forEach((video) => {
+    if (video.file) video.selected = target;
+  });
+}
+
+async function confirmBatchSummarize() {
+  const modal = batchModal.value;
+  if (!modal || modal.loading || batchSubmitting.value) return;
+  const picked = batchPicked.value;
+  if (!picked.length) return;
+  batchSubmitting.value = true;
+  try {
+    const result = await window.desktop.summaryEnqueue(
+      modal.collection.name,
+      picked.map((video) => ({ filePath: video.file, title: video.name })),
+      modal.focus,
+    );
+    if (result.success) {
+      showAppNotice({ kind: "summary", ok: true, title: `已加入任务队列：合集总结（${picked.length} 个视频）` });
+      closeBatchModal();
+    } else {
+      modal.error = result.error || "入队失败";
+    }
+  } finally {
+    batchSubmitting.value = false;
+  }
+}
+
+// ---- AI summary packaging (zip export) ------------------------------------
+
+const packModal = ref(null); // { collection, videos, loading, error }
+const packSubmitting = ref(false);
+
+async function openPackDialog(node) {
+  if (anyModalOpen()) return;
+  window.desktop.setViewVisible(false);
+  packModal.value = { collection: node, videos: [], loading: true, error: "" };
+  const result = await window.desktop.summaryBatchPreview(node.path);
+  if (!packModal.value) return;
+  packModal.value.loading = false;
+  if (!result.success) {
+    packModal.value.error = result.error || "读取合集失败";
+    return;
+  }
+  packModal.value.videos = result.videos
+    .filter((video) => video.hasSummary)
+    .map((video) => ({ ...video, selected: true }));
+}
+
+function closePackModal() {
+  packModal.value = null;
+  window.desktop.setViewVisible(true);
+}
+
+async function confirmPack() {
+  const modal = packModal.value;
+  if (!modal || modal.loading || packSubmitting.value) return;
+  const picked = modal.videos.filter((video) => video.selected);
+  if (!picked.length) return;
+  packSubmitting.value = true;
+  try {
+    const result = await window.desktop.summaryPack(
+      modal.collection.name,
+      picked.map((video) => video.dir),
+    );
+    if (result.success) {
+      showAppNotice({
+        kind: "summary",
+        ok: true,
+        title: `AI 总结打包完成（${result.videos} 个视频，${result.files} 个文件）`,
+        file: result.file,
+      });
+      closePackModal();
+    } else {
+      modal.error = result.error || "打包失败";
+    }
+  } finally {
+    packSubmitting.value = false;
+  }
+}
+
+// Standalone / in-collection video row: pack just that one video's summaries.
+async function packVideo(node) {
+  if (anyModalOpen()) return;
+  const result = await window.desktop.summaryPack("", [node.path]);
+  showAppNotice(
+    result.success
+      ? { kind: "summary", ok: true, title: `AI 总结打包完成（${result.files} 个文件）`, file: result.file }
+      : { kind: "summary", ok: false, title: `打包失败：${result.error || "未知错误"}` },
+  );
 }
 
 function fmtSize(bytes) {
@@ -155,13 +312,20 @@ function prettyNotes(content) {
         <div v-for="node in tree" :key="node.path" class="lib-node">
           <div v-if="node.type === 'collection'" class="lib-row coll" @click="toggle(node)">
             <span class="lib-caret">{{ node.open ? "▾" : "▸" }}</span>
-            <span>📂 {{ node.name }}</span>
+            <span class="lib-name">📂 {{ node.name }}</span>
+            <span class="lib-actions">
+              <button class="lib-action-btn" title="对整个合集生成 AI 总结（入任务队列）" @click.stop="openBatchSummarize(node)">AI总结</button>
+              <button class="lib-action-btn" title="把合集内的 AI 总结打包为 zip 迁移" @click.stop="openPackDialog(node)">打包</button>
+            </span>
           </div>
           <template v-if="node.type === 'collection' && node.open">
             <div v-for="child in node.children" :key="child.path" class="lib-sub">
               <div v-if="child.type === 'video'" class="lib-row video" @click="toggle(child)">
                 <span class="lib-caret">{{ child.open ? "▾" : "▸" }}</span>
-                <span>🎬 {{ child.name }}</span>
+                <span class="lib-name">🎬 {{ child.name }}</span>
+                <span class="lib-actions">
+                  <button class="lib-action-btn" title="把这个视频的 AI 总结打包为 zip" @click.stop="packVideo(child)">打包</button>
+                </span>
               </div>
               <template v-if="child.type === 'video' && child.open">
                 <div
@@ -189,7 +353,10 @@ function prettyNotes(content) {
           <template v-else-if="node.type === 'video'">
             <div class="lib-row video" @click="toggle(node)">
               <span class="lib-caret">{{ node.open ? "▾" : "▸" }}</span>
-              <span>🎬 {{ node.name }}</span>
+              <span class="lib-name">🎬 {{ node.name }}</span>
+              <span class="lib-actions">
+                <button class="lib-action-btn" title="把这个视频的 AI 总结打包为 zip" @click.stop="packVideo(node)">打包</button>
+              </span>
             </div>
             <template v-if="node.open">
               <div
@@ -241,7 +408,82 @@ function prettyNotes(content) {
         <p class="focus-hint">留空使用通用模板；总结的固定结构与格式不受影响。</p>
         <div class="focus-actions">
           <button class="btn ghost small" @click="closeSummarizeDialog">取消</button>
-          <button class="btn small" :disabled="summarizing" @click="runSummarize">开始总结</button>
+          <button class="btn small" :disabled="summarizing" @click="runSummarize">加入任务队列</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="batchModal" class="explain-overlay" @click.self="closeBatchModal">
+      <div class="focus-dialog batch-dialog">
+        <h3>总结合集：{{ batchModal.collection.name }}</h3>
+        <div v-if="batchModal.loading" class="placeholder">正在读取合集视频…</div>
+        <p v-else-if="batchModal.error" class="batch-error">{{ batchModal.error }}</p>
+        <template v-else>
+          <div class="batch-toolbar">
+            <label class="batch-check">
+              <input type="checkbox" :checked="batchAllChecked" @change="toggleBatchAll" />
+              全选有字幕文档的视频
+            </label>
+            <span class="batch-hint">已总结的默认跳过，重新勾选将覆盖</span>
+          </div>
+          <div class="batch-list">
+            <label
+              v-for="video in batchModal.videos"
+              :key="video.dir"
+              class="batch-item"
+              :class="{ disabled: !video.file }"
+            >
+              <input type="checkbox" v-model="video.selected" :disabled="!video.file" />
+              <span class="batch-item-name" :title="video.name">{{ video.name }}</span>
+              <span v-if="!video.file" class="batch-badge">无字幕文档</span>
+              <span v-else-if="video.hasSummary" class="batch-badge done">已有总结</span>
+            </label>
+            <div v-if="!batchModal.videos.length" class="placeholder">合集下没有视频文件夹。</div>
+          </div>
+          <textarea
+            v-model="batchModal.focus"
+            class="focus-input"
+            rows="2"
+            maxlength="500"
+            placeholder="总结关注方向（可选）：如「列出提到的工具与配置步骤」"
+            @keydown.ctrl.enter.prevent="confirmBatchSummarize"
+            @keydown.meta.enter.prevent="confirmBatchSummarize"
+          ></textarea>
+          <p class="focus-hint">逐个视频生成 AI 总结并保存在原视频文件夹，任务进度见「任务」页。</p>
+        </template>
+        <div class="focus-actions">
+          <button class="btn ghost small" @click="closeBatchModal">取消</button>
+          <button
+            class="btn small"
+            :disabled="batchModal.loading || batchSubmitting || !batchPicked.length"
+            @click="confirmBatchSummarize"
+          >开始总结（{{ batchPicked.length }}）</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="packModal" class="explain-overlay" @click.self="closePackModal">
+      <div class="focus-dialog batch-dialog">
+        <h3>打包 AI 总结：{{ packModal.collection.name }}</h3>
+        <div v-if="packModal.loading" class="placeholder">正在读取合集视频…</div>
+        <p v-else-if="packModal.error" class="batch-error">{{ packModal.error }}</p>
+        <template v-else>
+          <div v-if="!packModal.videos.length" class="placeholder">这个合集还没有任何 AI 总结文件。</div>
+          <div v-else class="batch-list">
+            <label v-for="video in packModal.videos" :key="video.dir" class="batch-item">
+              <input type="checkbox" v-model="video.selected" />
+              <span class="batch-item-name" :title="video.name">{{ video.name }}</span>
+            </label>
+          </div>
+          <p class="focus-hint">打包为 zip（保留「合集 → 视频」目录结构并附 manifest 清单），保存在导出目录根下，可拷贝到其他设备完成迁移。</p>
+        </template>
+        <div class="focus-actions">
+          <button class="btn ghost small" @click="closePackModal">取消</button>
+          <button
+            class="btn small"
+            :disabled="packModal.loading || packSubmitting || !packModal.videos.some((v) => v.selected)"
+            @click="confirmPack"
+          >打包导出</button>
         </div>
       </div>
     </div>
@@ -249,6 +491,108 @@ function prettyNotes(content) {
 </template>
 
 <style scoped>
+.lib-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lib-actions {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 4px;
+  flex: none;
+}
+.lib-action-btn {
+  border: 1px solid var(--line);
+  background: var(--surface-soft, #fafafa);
+  color: var(--muted);
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 7px;
+  cursor: pointer;
+}
+.lib-action-btn:hover {
+  border-color: var(--pink);
+  color: var(--pink);
+}
+.batch-dialog {
+  width: min(560px, 94vw);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+}
+.batch-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--ink);
+}
+.batch-hint {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+.batch-list {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft, #fafafa);
+  max-height: 300px;
+  overflow-y: auto;
+  margin-bottom: 10px;
+  flex: none;
+}
+.batch-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+}
+.batch-item:last-child {
+  border-bottom: none;
+}
+.batch-item.disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.batch-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.batch-badge {
+  flex: none;
+  font-size: 11px;
+  border-radius: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.batch-badge.done {
+  color: #2ecc71;
+  border-color: rgba(46, 204, 113, 0.4);
+}
+.batch-error {
+  color: #e74c3c;
+  font-size: 13px;
+  margin: 6px 0;
+}
 .focus-dialog {
   width: min(480px, 92vw);
   background: var(--surface);

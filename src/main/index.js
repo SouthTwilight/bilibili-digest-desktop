@@ -340,7 +340,13 @@ app.whenReady().then(() => {
       mainWindow?.webContents.send("export:task-update", task);
       const notice = buildFinishedNotice(task);
       if (notice) {
-        pushNoticeToUser(notice, { foregroundEvent: "export:finished", trayClickEvent: "export:navigate-tasks" });
+        // Summary notices ride the summary:finished channel (the toast's
+        // action opens the .md file); export notices jump to the tasks page.
+        const events =
+          task.type === "summary"
+            ? { foregroundEvent: "summary:finished", trayClickEvent: "summary:finished" }
+            : { foregroundEvent: "export:finished", trayClickEvent: "export:navigate-tasks" };
+        pushNoticeToUser(notice, events);
       }
     },
   });

@@ -60,3 +60,46 @@ test("全部失败：file 为 null", () => {
   assert.equal(n.ok, false);
   assert.equal(n.file, null);
 });
+
+test("summary 任务：单文档成功走 summary 通知", () => {
+  const n = buildFinishedNotice({
+    status: "done",
+    type: "summary",
+    collectionTitle: "",
+    results: [{ title: "视频A", status: "done", file: "D:/x/AI总结_视频A.md" }],
+  });
+  assert.equal(n.kind, "summary");
+  assert.equal(n.ok, true);
+  assert.equal(n.title, "AI 总结完成：视频A");
+  assert.equal(n.file, "D:/x/AI总结_视频A.md");
+});
+
+test("summary 任务：合集全部成功标题带数量", () => {
+  const n = buildFinishedNotice({
+    status: "done",
+    type: "summary",
+    collectionTitle: "合集X",
+    results: [
+      { title: "A", status: "done", file: "a" },
+      { title: "B", status: "done", file: "b" },
+    ],
+  });
+  assert.equal(n.kind, "summary");
+  assert.equal(n.ok, true);
+  assert.equal(n.title, "合集总结完成：合集X（2 个视频）");
+  assert.equal(n.file, "a");
+});
+
+test("summary 任务：部分失败 ok=false 且标题带计数", () => {
+  const n = buildFinishedNotice({
+    status: "done",
+    type: "summary",
+    collectionTitle: "合集X",
+    results: [
+      { title: "A", status: "done", file: "a" },
+      { title: "B", status: "failed", error: "x" },
+    ],
+  });
+  assert.equal(n.ok, false);
+  assert.equal(n.title, "合集总结完成：合集X（成功 1，失败 1）");
+});

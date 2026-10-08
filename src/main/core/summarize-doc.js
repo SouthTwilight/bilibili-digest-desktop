@@ -6,6 +6,11 @@
 // exports carry one `## Pn` section per part, which is exactly the natural
 // seam), hard-splitting any oversized section by lines.
 
+import { readFileSync, writeFileSync } from "node:fs";
+import { join, dirname, basename, extname } from "node:path";
+import { requestAiCompletion, loadPromptSection } from "./ai.js";
+import { sanitizeName } from "./export-render.js";
+
 export function splitDocIntoChunks(content, maxChars = 100_000) {
   const text = String(content || "");
   if (!text || text.length <= maxChars) return text ? [text] : [];
@@ -84,4 +89,79 @@ export function buildSummaryNotice({ success, videoName, file, error }) {
   return success
     ? { kind: "summary", ok: true, title: `AI 总结完成：${videoName}`, file: file || null }
     : { kind: "summary", ok: false, title: `AI 总结失败：${error || "未知错误"}`, file: null };
+}
+
+// Derive the video name a summary is "about": the document's H1 beats the
+// file name, and export-timestamp suffixes are stripped either way.
+export function docVideoName(filePath, content) {
+  const titleMatch = String(content || "").match(/^#\s+(.+)$/m);
+  return (titleMatch?.[1] || basename(filePath, extname(filePath)))
+    .replace(/[_-]\d{4}-\d{2}-\d{2}_\d{2}-\d{2}$/, "")
+    .slice(0, 60);
+}
+
+// Summarize one exported markdown document and store the result next to it
+// as AI总结_视频名.md. Shared by the single-file enqueue and the collection
+// batch queue — `requestCompletion` is injectable for tests. Errors are
+// thrown (callers map codes like NO_AI_KEY); progress rides onProgress as
+// (title, subtitle) ticks.
+export async function summarizeExportedDoc({
+  settings,
+  filePath,
+  focus = "",
+  onProgress,
+  requestCompletion = requestAiCompletion,
+}) {
+  const content = readFileSync(filePath, "utf8");
+  const videoName = docVideoName(filePath, content);
+  const userFocus = sanitizeFocus(focus);
+  const userFocusBlock = userFocus
+    ? loadPromptSection("summary.md", "User focus block", { userFocus })
+    : "";
+  const complete = (promptContent, title) =>
+    requestCompletion({
+      settings,
+      maxTokens: 8192,
+      messages: [{ role: "user", content: loadPromptSection("summary.md", "System prompt", { title, content: promptContent, userFocusBlock }) }],
+    });
+
+  // Whole-video multi-P exports can exceed the model's context window. Split
+  // at section boundaries, summarize each chunk with the same four-layer
+  // prompt, then synthesize — no silent truncation.
+  const chunks = splitDocIntoChunks(content, 100_000);
+  let text;
+  if (chunks.length <= 1) {
+    onProgress?.("正在生成 AI 总结", "长文档需要一两分钟");
+    text = await complete(content, videoName);
+  } else {
+    const partSummaries = [];
+    for (let i = 0; i < chunks.length; i += 1) {
+      onProgress?.("正在生成 AI 总结", `长文档已分 ${chunks.length} 块，正在总结第 ${i + 1}/${chunks.length} 块`);
+      partSummaries.push(await complete(chunks[i], `${videoName}（第 ${i + 1}/${chunks.length} 块）`));
+    }
+    onProgress?.("正在汇总各块总结", "最后一步");
+    const focusInstruction = buildSynthesisFocusInstruction(userFocus);
+    text = await requestCompletion({
+      settings,
+      maxTokens: 8192,
+      messages: [
+        {
+          role: "user",
+          content:
+            `以下是一份长文档（约 ${content.length} 字符）按顺序分块总结的结果。请把它们综合成一份完整的总结文档，` +
+            "遵循与分块总结相同的结构（快速概览 / 结构化深度总结 / 总结与行动项）：合并各块中重复的主题，" +
+            "按内容自然脉络重新组织分节，保留所有时间戳链接和关键原话，不要遗漏任何一块的要点。" +
+            focusInstruction +
+            "\n\n" +
+            partSummaries.map((s, i) => `--- 第 ${i + 1} 块总结 ---\n${s}`).join("\n\n"),
+        },
+      ],
+    });
+  }
+  // Titles ride straight into the output filename; Windows-illegal
+  // characters in them (e.g. "AI游戏开发速成课|AI生成...") used to make
+  // writeFileSync fail with ENOENT. The prompt keeps the raw title.
+  const outFile = join(dirname(filePath), `AI总结_${sanitizeName(videoName) || "未命名"}.md`);
+  writeFileSync(outFile, text.trim() + "\n", "utf8");
+  return { success: true, file: outFile, videoName };
 }

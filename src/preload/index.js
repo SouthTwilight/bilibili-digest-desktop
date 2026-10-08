@@ -16,8 +16,14 @@ contextBridge.exposeInMainWorld("desktop", {
   captureFrame: () => ipcRenderer.invoke("video:capture-frame"),
   exportNotes: (video) => ipcRenderer.invoke("notes:export", video),
   openWithDefaultApp: (filePath) => ipcRenderer.invoke("library:open", { filePath }),
-  summarizeDoc: (filePath, focus = "") =>
-    ipcRenderer.invoke("library:summarize", { filePath, focus }),
+  summaryBatchPreview: (collectionPath) =>
+    ipcRenderer.invoke("summary:batch-preview", { collectionPath }),
+  summaryEnqueue: (collectionTitle, items, focus = "") =>
+    ipcRenderer.invoke("summary:enqueue", { collectionTitle, items, focus }),
+  summaryRetry: (taskId, itemIndexes) =>
+    ipcRenderer.invoke("summary:retry", { taskId, itemIndexes }),
+  summaryPack: (collectionTitle, videoDirs) =>
+    ipcRenderer.invoke("summary:pack", { collectionTitle, videoDirs }),
   revealInFolder: (filePath) => ipcRenderer.invoke("shell:reveal", filePath),
   navGo: (direction) => ipcRenderer.invoke("nav:go", direction),
   navReload: () => ipcRenderer.invoke("nav:reload"),
