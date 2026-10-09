@@ -400,13 +400,11 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
   // ---- AI summary queue / packaging ----------------------------------------
 
   // Display title for a queued summary item: the export file name minus its
-  // timestamp/part suffixes. The output file name is derived from the doc's
-  // H1 at run time (summarizeExportedDoc).
+  // timestamp suffix (the _Pn part marker stays — each P summarizes on its
+  // own). The output file name is derived from the doc's H1 at run time.
   function summaryItemTitle(filePath) {
     return basename(filePath, extname(filePath))
       .replace(/[_-]\d{4}-\d{2}-\d{2}_\d{2}-\d{2}$/, "")
-      .replace(/_P\d+$/, "")
-      .replace(/_全部P$/, "")
       .slice(0, 60);
   }
 

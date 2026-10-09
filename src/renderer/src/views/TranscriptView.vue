@@ -46,13 +46,13 @@ async function exportSingleNow() {
   }
 }
 
-// Multi-P videos export as ONE whole-video document (one section per part)
-// instead of per-part files — the part sections and ?p= jump links are built
-// by the export renderer in the main process.
+// Every part is exported as its own document (视频名_Pn_时间戳.md) — the same
+// treatment a collection gives each video, so each P stays readable and can
+// be summarized independently.
 async function exportAllPagesNow() {
   if (!currentVideo.value || exporting.value) return;
   exporting.value = true;
-  showAppNotice({ kind: "export", ok: true, title: "已加入任务队列：全部P合并导出" });
+  showAppNotice({ kind: "export", ok: true, title: "已加入任务队列：全部P分P导出" });
   try {
     const source = transcript.value?.source === "bilibili-subtitle" ? "subtitle" : "asr";
     const result = await window.desktop.exportSingle(currentVideo.value.bvid, currentVideo.value.page, exportFormat.value, source, lastLoadTrack, true);
@@ -397,7 +397,7 @@ function seek(seconds) {
       <button
         v-if="(videoDetails?.pageCount || 1) > 1"
         class="btn ghost small"
-        title="所有分P合并为一份文档，每个P一个章节"
+        title="每个分P导出为一份独立文档（视频名_Pn）"
         :disabled="exporting"
         @click="exportAllPagesNow"
       >导出全部P</button>

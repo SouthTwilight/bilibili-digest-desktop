@@ -92,12 +92,18 @@ export function buildSummaryNotice({ success, videoName, file, error }) {
 }
 
 // Derive the video name a summary is "about": the document's H1 beats the
-// file name, and export-timestamp suffixes are stripped either way.
+// file name, and export-timestamp suffixes are stripped either way. Per-P
+// exports share one H1, so the source file's _Pn suffix is kept — each part
+// gets its own AI总结_视频名_Pn.md instead of overwriting its siblings.
 export function docVideoName(filePath, content) {
+  const fileBase = basename(filePath, extname(filePath)).replace(
+    /[_-]\d{4}-\d{2}-\d{2}_\d{2}-\d{2}$/,
+    "",
+  );
   const titleMatch = String(content || "").match(/^#\s+(.+)$/m);
-  return (titleMatch?.[1] || basename(filePath, extname(filePath)))
-    .replace(/[_-]\d{4}-\d{2}-\d{2}_\d{2}-\d{2}$/, "")
-    .slice(0, 60);
+  const name = (titleMatch?.[1] || fileBase).slice(0, 60);
+  const part = fileBase.match(/_P(\d+)$/);
+  return part ? `${name}_P${part[1]}` : name;
 }
 
 // Summarize one exported markdown document and store the result next to it

@@ -114,10 +114,11 @@ function readLibraryFile(saveDir, filePath) {
   }
 }
 
-// Enumerate a collection's video folders for batch AI summarization. Each
-// video contributes its newest summarizable export (a plain .md — AI 总结
-// and 笔记 outputs are excluded as inputs) plus whether a summary already
-// exists, so the picker can default to skipping already-summarized videos.
+// Enumerate a collection's video folders for batch AI summarization. Inputs
+// are plain transcript exports (AI 总结 and 笔记 outputs are excluded); every
+// file is its own entry — per-P exports are separate documents sharing one
+// video folder, and each P summarizes independently (AI总结_视频名_Pn.md).
+// Re-exports carry timestamps, so only the newest file per base name is kept.
 function scanCollectionForSummary(saveDir, collectionPath) {
   const base = String(saveDir || "");
   const target = String(collectionPath || "");
@@ -134,32 +135,40 @@ function scanCollectionForSummary(saveDir, collectionPath) {
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name === "picture") continue;
     const dir = join(target, entry.name);
-    let files = [];
+    let names = [];
     try {
-      files = readdirSync(dir, { withFileTypes: true })
-        .filter((e) => e.isFile())
-        .map((e) => join(dir, e.name));
+      names = readdirSync(dir);
     } catch {
       continue;
     }
-    const hasSummary = files.some((file) => /^AI总结_.*\.md$/i.test(basename(file)));
-    // Inputs are plain transcript exports; generated docs (AI总结_/笔记_)
-    // summarize themselves in a loop otherwise.
-    const candidates = files.filter((file) => {
-      const name = basename(file);
-      return (
-        extname(name).toLowerCase() === ".md" && !/^AI总结_/i.test(name) && !/^笔记_/.test(name)
-      );
-    });
-    let newest = null;
-    for (const file of candidates) {
+    const nameSet = new Set(names);
+    const byBase = new Map();
+    for (const name of names) {
+      if (!name.toLowerCase().endsWith(".md") || /^AI总结_/i.test(name) || /^笔记_/.test(name)) {
+        continue;
+      }
+      const fileTitle = name
+        .replace(/\.md$/i, "")
+        .replace(/[_-]\d{4}-\d{2}-\d{2}_\d{2}-\d{2}$/, "");
+      const path = join(dir, name);
       let mtime = 0;
       try {
-        mtime = statSync(file).mtimeMs;
+        mtime = statSync(path).mtimeMs;
       } catch {}
-      if (!newest || mtime > newest.mtime) newest = { file, mtime };
+      const prev = byBase.get(fileTitle);
+      if (!prev || mtime > prev.mtime) byBase.set(fileTitle, { path, fileTitle, mtime });
     }
-    videos.push({ name: entry.name, dir, file: newest?.file || null, hasSummary });
+    const partOrder = (fileTitle) => Number(fileTitle.match(/_P(\d+)$/)?.[1] || 0);
+    const bases = Array.from(byBase.values()).sort((a, b) => partOrder(a.fileTitle) - partOrder(b.fileTitle));
+    for (const { path, fileTitle } of bases) {
+      const part = fileTitle.match(/_P(\d+)$/);
+      videos.push({
+        name: part ? `${entry.name}（${part[0].slice(1)}）` : entry.name,
+        dir,
+        file: path,
+        hasSummary: nameSet.has(`AI总结_${fileTitle}.md`),
+      });
+    }
   }
   videos.sort((a, b) => a.name.localeCompare(b.name));
   return { success: true, videos };

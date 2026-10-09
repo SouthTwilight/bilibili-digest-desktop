@@ -113,6 +113,23 @@ test("summarizeExportedDoc 错误抛给调用方（NO_AI_KEY 保留错误码）"
   rmSync(tmp, { recursive: true, force: true });
 });
 
+test("summarizeExportedDoc 保留 _Pn 后缀：每P总结独立成文件", async () => {
+  rmSync(tmp, { recursive: true, force: true });
+  mkdirSync(join(tmp, "多P_BV9"), { recursive: true });
+  const src = join(tmp, "多P_BV9", "多P_P2_2026-01-01_10-00.md");
+  // 每个P的导出文档 H1 相同——文件名的 _P2 后缀保证总结互不覆盖。
+  writeFileSync(src, "# 多P视频\n\n## 完整字幕\nP2 内容", "utf8");
+  const result = await summarizeExportedDoc({
+    settings,
+    filePath: src,
+    requestCompletion: async () => "P2 总结",
+  });
+  assert.equal(result.videoName, "多P视频_P2");
+  assert.ok(result.file.endsWith(join(tmp, "多P_BV9", "AI总结_多P视频_P2.md")), result.file);
+  assert.equal(readFileSync(result.file, "utf8"), "P2 总结\n");
+  rmSync(tmp, { recursive: true, force: true });
+});
+
 function writeBatchDocs() {
   rmSync(tmp, { recursive: true, force: true });
   mkdirSync(join(tmp, "视频A_BV1"), { recursive: true });

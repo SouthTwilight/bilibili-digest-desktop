@@ -95,14 +95,13 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, su
     };
   }
 
-  function targetFile(task, item, format) {
+  function targetFile(task, item, format, page) {
     const base = settingsStore.load().saveDir || ".";
     const videoDir = videoFolderName(item.videoTitle || item.title, item.bvid);
     const folder = task.collectionTitle
       ? join(base, sanitizeDirName(task.collectionTitle) || "合集", videoDir)
       : join(base, videoDir);
-    // "all" labels a merged whole-video export covering every part.
-    const pageLabel = item.allPages ? "all" : item.page || 1;
+    const pageLabel = page || item.page || 1;
     return join(folder, `${exportFileName(item.videoTitle || item.title, pageLabel)}.${format}`);
   }
 
@@ -113,9 +112,9 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, su
       const settings = settingsStore.load();
       // One view fetch serves both the metadata and the multi-P page list.
       const view = await fetchBilibiliView(item.bvid).catch(() => null);
-      // Collection exports cover every part of multi-P videos (one merged
-      // document) — decided here at run time instead of a slow pre-enqueue
-      // probe; single-video exports keep their explicit allPages choice.
+      // Collection exports cover every part of multi-P videos (one FILE per
+      // part) — decided here at run time instead of a slow pre-enqueue probe;
+      // single-video exports keep their explicit allPages choice.
       const wantsAllPages =
         item.allPages || (task.type === "collection" && (view?.pages?.length || 0) > 1);
       const pages = wantsAllPages && view?.pages?.length ? view.pages : null;
@@ -154,50 +153,64 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, su
         });
       };
 
-      const video = {
+      const baseVideo = {
         title: view?.title || item.videoTitle || item.title,
         channelName: view?.owner?.name || "",
         url: `https://www.bilibili.com/video/${item.bvid}/`,
         description: view?.desc || "",
       };
+      const format = item.format || task.format || "md";
 
       if (pages) {
-        // Whole-video export: one document, one section per part, with the
-        // part's cached AI chapters (if any) inside its section.
-        const parts = [];
+        // Multi-P videos export ONE FILE PER PART — each P is its own
+        // readable, independently summarizable document, exactly like the
+        // collection treats each video. (Merged _全部P_ docs used to produce
+        // unreadable monsters and un-summarizable contexts.)
+        let firstFile = null;
         for (const [index, pageEntry] of pages.entries()) {
           const page = pageEntry.page || index + 1;
-          const { transcript, cached, wantsAsr } = await fetchForPage(page);
+          const { transcript, cached } = await fetchForPage(page);
           if (!transcript.success) {
             throw new Error(`P${page}：${transcript.message || "获取字幕失败"}`);
           }
           cacheAsr(page, transcript);
-          parts.push({
+          const video = {
+            ...baseVideo,
             page,
-            title: pageEntry.part,
-            transcript: transcript.transcript,
             language: transcript.language,
+            transcript: transcript.transcript,
             analysis: cached?.analysis || null,
-          });
+          };
+          const content =
+            format === "html" ? buildHtmlExport(video) : buildMarkdownExport(video);
+          const file = targetFile(task, { ...item, videoTitle: baseVideo.title }, format, page);
+          mkdirSync(join(file, ".."), { recursive: true });
+          writeFileSync(file, content, "utf8");
+          firstFile ||= file;
         }
-        video.language = parts[0]?.language;
-        video.parts = parts;
-      } else {
-        const page = item.page || 1;
-        const { transcript, cached, wantsAsr } = await fetchForPage(page);
-        if (!transcript.success) {
-          throw new Error(transcript.message || "获取字幕失败");
-        }
-        cacheAsr(page, transcript);
-        video.language = transcript.language;
-        video.transcript = transcript.transcript;
-        video.analysis = cached?.analysis || null;
+        item.file = firstFile;
+        item.itemStatus = "done";
+        notify(task);
+        return;
       }
 
-      const format = item.format || task.format || "md";
+      const page = item.page || 1;
+      const { transcript, cached } = await fetchForPage(page);
+      if (!transcript.success) {
+        throw new Error(transcript.message || "获取字幕失败");
+      }
+      cacheAsr(page, transcript);
+      const video = {
+        ...baseVideo,
+        page,
+        language: transcript.language,
+        transcript: transcript.transcript,
+        analysis: cached?.analysis || null,
+      };
+
       const content =
         format === "html" ? buildHtmlExport(video) : buildMarkdownExport(video);
-      const file = targetFile(task, { ...item, videoTitle: video.title }, format);
+      const file = targetFile(task, { ...item, videoTitle: video.title }, format, page);
       mkdirSync(join(file, ".."), { recursive: true });
       writeFileSync(file, content, "utf8");
       item.itemStatus = "done";

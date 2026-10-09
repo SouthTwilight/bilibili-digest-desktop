@@ -102,7 +102,7 @@ export function buildMarkdownExport(video) {
     pushAnalysis(video.analysis, "top");
     lines.push("## 完整字幕", "");
     (video.transcript || []).forEach((entry) => {
-      lines.push(`- [${timestampLabel(entry.start)}](${transcriptLink(video.url, 1, entry.start)}) ${entry.text}`);
+      lines.push(`- [${timestampLabel(entry.start)}](${transcriptLink(video.url, video.page || 1, entry.start)}) ${entry.text}`);
     });
   }
   lines.push("", "---", "由 Bilibili Digest 桌面版导出");
@@ -157,7 +157,7 @@ export function buildHtmlExport(video) {
       .join("");
   } else {
     const { chapters, quotes } = analysisHtml(video.analysis);
-    bodySections = `${chapters ? `<h2>AI 章节</h2>${chapters}` : ""}${quotes ? `<h2>关键观点</h2>${quotes}` : ""}<h2>完整字幕</h2>${entriesHtml(video.transcript, 1)}`;
+    bodySections = `${chapters ? `<h2>AI 章节</h2>${chapters}` : ""}${quotes ? `<h2>关键观点</h2>${quotes}` : ""}<h2>完整字幕</h2>${entriesHtml(video.transcript, video.page || 1)}`;
   }
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(video.title || "B站视频学习笔记")}</title><style>${HTML_STYLE}
   </style></head><body><main class="page"><h1>${escapeHtml(video.title || "B站视频学习笔记")}</h1><div class="meta">UP主：${escapeHtml(video.channelName || "未知")} · <a href="${escapeHtml(video.url)}">打开原视频</a></div>${video.description ? `<h2>视频简介</h2><p>${escapeHtml(video.description)}</p>` : ""}${bodySections}<div class="footer">由 Bilibili Digest 桌面版导出</div></main></body></html>`;
