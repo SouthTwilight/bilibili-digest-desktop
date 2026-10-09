@@ -6,3 +6,11 @@ dist/
 tests/tmp-settings.json
 download/
 tmp-subtitles/
+
+# test-run artifacts
+tests/tmp-cache/
+tests/tmp-pack/
+tests/tmp-notes-dir/
+tests/tmp-summarize-doc/
+tests/tmp-summary-queue/
+tests/tmp-lib/
