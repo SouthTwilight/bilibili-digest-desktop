@@ -52,7 +52,10 @@ export function loadPromptSection(fileName, heading, variables = {}) {
 
 // OpenAI-compatible chat/completions call with the same bounded-timeout and
 // bounded-size guarantees as the extension's requestAiCompletion.
-export async function requestAiCompletion({ settings, messages, maxTokens, temperature, responseFormat }) {
+// `onUsage` receives the provider's usage object (prompt_tokens,
+// completion_tokens, and cached-token details when the provider reports
+// them) so callers can surface token cost without changing the return shape.
+export async function requestAiCompletion({ settings, messages, maxTokens, temperature, responseFormat, onUsage }) {
   const provider = providerInfo(settings.provider);
   const apiKey = settings.aiApiKeys[settings.provider] || "";
   if (!apiKey) {
@@ -110,6 +113,7 @@ export async function requestAiCompletion({ settings, messages, maxTokens, tempe
       error.code = "EMPTY_AI_RESPONSE";
       throw error;
     }
+    if (data?.usage && typeof data.usage === "object") onUsage?.(data.usage);
     return text;
   } catch (error) {
     if (timeoutKind === "idle") {

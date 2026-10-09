@@ -57,6 +57,16 @@ function collapsedSummary(task) {
   return parts.join("　");
 }
 
+function fmtTokens(n) {
+  return n >= 10000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
+function usageText(usage) {
+  if (!usage || (!usage.input && !usage.output)) return "";
+  const cached = usage.cached ? `（缓存命中 ${fmtTokens(usage.cached)}）` : "";
+  return `Token 消耗：入 ${fmtTokens(usage.input)}${cached} · 出 ${fmtTokens(usage.output)}`;
+}
+
 async function cancel(task) {
   await window.desktop.exportCancel(task.id);
   refresh();
@@ -95,6 +105,7 @@ function reveal(file) {
       <span class="task-progress-text">{{ task.done }}/{{ task.total }}</span>
     </div>
     <div v-if="isCollapsed(task)" class="task-collapsed-line" :title="collapsedSummary(task)">{{ collapsedSummary(task) }}</div>
+    <div v-if="usageText(task.usage)" class="task-usage-line">{{ usageText(task.usage) }}</div>
     <div v-else class="task-items">
       <div v-for="(result, i) in task.results" :key="i" class="task-item" :class="result.status">
         <span class="task-item-status">{{ result.status === "done" ? "✓" : result.status === "failed" ? "✗" : result.status === "running" ? "⏳" : "·" }}</span>

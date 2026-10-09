@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, statSync } from "node:fs";
 import { fetchTranscript } from "./transcript-service.js";
 import { fetchBilibiliView } from "./bilibili.js";
 import { buildMarkdownExport, buildHtmlExport, exportFileName } from "./export-render.js";
 import { videoFolderName } from "./notes.js";
-import { summarizeExportedDoc } from "./summarize-doc.js";
+import { summarizeExportedDoc, summarizeDocsBatch as runSummarizeDocsBatch } from "./summarize-doc.js";
 
 function sanitizeDirName(name) {
   return String(name || "")
@@ -57,7 +57,7 @@ export function buildFinishedNotice(task) {
   return { kind: "export", ok: failed === 0, title, file: succeeded[0]?.file || null };
 }
 
-export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, summarizeDoc = summarizeExportedDoc }) {
+export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, summarizeDoc = summarizeExportedDoc, summarizeDocsBatch = runSummarizeDocsBatch }) {
   const tasks = new Map();
   const subtitleLane = [];
   const asrLane = [];
@@ -75,6 +75,11 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, su
       type: task.type,
       collectionTitle: task.collectionTitle,
       status: task.status,
+      // Summary tasks accumulate token usage so the cost of a batch (and of
+      // batching) is visible on the tasks page.
+      ...(task.usage && (task.usage.input || task.usage.output)
+        ? { usage: { ...task.usage } }
+        : {}),
       done: task.items.filter((item) => item.itemStatus === "done" || item.itemStatus === "failed").length,
       total: task.items.length,
       results: task.items.map((item) => ({
@@ -204,6 +209,20 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, su
     notify(task);
   }
 
+  // Accumulate provider usage into the task record. Cached-token details
+  // differ per provider: OpenAI-style prompt_tokens_details.cached_tokens vs
+  // DeepSeek's prompt_cache_hit_tokens.
+  function addUsage(task) {
+    return (usage) => {
+      if (!usage || typeof usage !== "object") return;
+      task.usage = task.usage || { input: 0, output: 0, cached: 0 };
+      task.usage.input += Number(usage.prompt_tokens) || 0;
+      task.usage.output += Number(usage.completion_tokens) || 0;
+      task.usage.cached +=
+        Number(usage.prompt_tokens_details?.cached_tokens) || Number(usage.prompt_cache_hit_tokens) || 0;
+    };
+  }
+
   // AI summaries read the already-exported markdown from disk, so an item is
   // just a file path; intra-item chunk progress rides `item.detail` into the
   // task payload instead of the global running card.
@@ -220,6 +239,7 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, su
           item.detail = subtitle || null;
           notify(task);
         },
+        onUsage: addUsage(task),
       });
       item.itemStatus = "done";
       item.file = result.file;
@@ -231,6 +251,75 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, su
           : error.message || String(error);
     } finally {
       item.detail = null;
+      notify(task);
+    }
+  }
+
+  // Short docs of the SAME task are packed into one completion request —
+  // the fixed prompt template is billed once per group instead of once per
+  // video. Caps keep a group comfortably inside the model context and the
+  // 8192-token output budget (docs the model skips fall back solo anyway).
+  const GROUP_MAX_ITEMS = 8;
+  const GROUP_MAX_BYTES = 120_000;
+
+  function fileBytes(filePath) {
+    try {
+      return statSync(filePath).size;
+    } catch {
+      return Number.POSITIVE_INFINITY; // unreadable → never group, solo reports
+    }
+  }
+
+  function takeSummaryGroup() {
+    const first = summaryLane.shift();
+    if (!first) return null;
+    const group = [first];
+    let bytes = fileBytes(first.item.filePath);
+    while (group.length < GROUP_MAX_ITEMS && bytes <= GROUP_MAX_BYTES) {
+      const next = summaryLane[0];
+      if (!next || next.task.id !== first.task.id) break;
+      const size = fileBytes(next.item.filePath);
+      if (bytes + size > GROUP_MAX_BYTES) break;
+      group.push(summaryLane.shift());
+      bytes += size;
+    }
+    return group;
+  }
+
+  async function runSummaryGroup(task, group) {
+    if (group.length === 1) return runSummaryItem(task, group[0].item);
+    const items = group.map((entry) => entry.item);
+    for (const item of items) {
+      item.itemStatus = "running";
+      item.detail = `批量总结中（本组 ${items.length} 个视频共用一次请求）`;
+    }
+    notify(task);
+    try {
+      const result = await summarizeDocsBatch({
+        settings: settingsStore.load(),
+        docs: items.map((item) => ({ filePath: item.filePath, title: item.title })),
+        focus: items[0].focus || "",
+        onProgress: (title) => {
+          for (const item of items) item.detail = title;
+          notify(task);
+        },
+        onUsage: addUsage(task),
+      });
+      const fileByPath = new Map(result.results.map((r) => [r.filePath, r.file]));
+      for (const item of items) {
+        item.itemStatus = "done";
+        item.file = fileByPath.get(item.filePath) || null;
+      }
+    } catch (error) {
+      for (const item of items) {
+        item.itemStatus = "failed";
+        item.error =
+          error.code === "NO_AI_KEY"
+            ? "未配置文本模型 API Key，请先到设置页填写。"
+            : error.message || String(error);
+      }
+    } finally {
+      for (const item of items) item.detail = null;
       notify(task);
     }
   }
@@ -280,12 +369,12 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, su
 
   function pumpSummaryLane() {
     while (summaryRunning < Math.max(1, settingsStore.load().exportConcurrency || 4)) {
-      const next = summaryLane.shift();
-      if (!next) return;
-      const { task, item } = next;
+      const group = takeSummaryGroup();
+      if (!group) return;
+      const { task } = group[0];
       if (task.status === "canceled") continue;
       summaryRunning += 1;
-      runSummaryItem(task, item)
+      runSummaryGroup(task, group)
         .catch(() => {})
         .finally(() => {
           summaryRunning -= 1;

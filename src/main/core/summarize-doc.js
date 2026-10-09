@@ -110,6 +110,7 @@ export async function summarizeExportedDoc({
   filePath,
   focus = "",
   onProgress,
+  onUsage,
   requestCompletion = requestAiCompletion,
 }) {
   const content = readFileSync(filePath, "utf8");
@@ -123,6 +124,7 @@ export async function summarizeExportedDoc({
       settings,
       maxTokens: 8192,
       messages: [{ role: "user", content: loadPromptSection("summary.md", "System prompt", { title, content: promptContent, userFocusBlock }) }],
+      onUsage,
     });
 
   // Whole-video multi-P exports can exceed the model's context window. Split
@@ -144,6 +146,7 @@ export async function summarizeExportedDoc({
     text = await requestCompletion({
       settings,
       maxTokens: 8192,
+      onUsage,
       messages: [
         {
           role: "user",
@@ -164,4 +167,93 @@ export async function summarizeExportedDoc({
   const outFile = join(dirname(filePath), `AI总结_${sanitizeName(videoName) || "未命名"}.md`);
   writeFileSync(outFile, text.trim() + "\n", "utf8");
   return { success: true, file: outFile, videoName };
+}
+
+// Marker titles strip angle brackets so a pathological title can neither
+// forge nor break the <<<总结：标题>>> delimiters.
+function markerTitle(name) {
+  return String(name || "").replace(/[<>]/g, "").trim().slice(0, 80);
+}
+
+// Summarize SEVERAL short documents in ONE completion request. Collection
+// batches of short videos otherwise re-bill the full prompt template per
+// video (the fixed template sits around the provider's prefix-cache
+// threshold, so it almost never hits). The model returns one
+// <<<总结：标题>>>-delimited section per doc; any doc it skipped or
+// mislabeled falls back to the solo path — correctness never depends on
+// format compliance, only the savings do.
+export async function summarizeDocsBatch({
+  settings,
+  docs,
+  focus = "",
+  onProgress,
+  onUsage,
+  requestCompletion = requestAiCompletion,
+}) {
+  const userFocus = sanitizeFocus(focus);
+  const userFocusBlock = userFocus
+    ? loadPromptSection("summary.md", "User focus block", { userFocus })
+    : "";
+  const entries = docs.map((doc) => {
+    const content = readFileSync(doc.filePath, "utf8");
+    return { ...doc, content, videoName: markerTitle(docVideoName(doc.filePath, content)) };
+  });
+  const docsBlock = entries
+    .map((entry, i) => `<<<文档 ${i + 1}/${entries.length}：${entry.videoName}>>>\n\n${entry.content}`)
+    .join("\n\n");
+  onProgress?.(`正在批量总结 ${entries.length} 个视频`, "一组短文档共用一次请求");
+
+  const response = await requestCompletion({
+    settings,
+    maxTokens: 8192,
+    messages: [
+      {
+        role: "user",
+        content: loadPromptSection("summary.md", "Batch system prompt", {
+          count: entries.length,
+          userFocusBlock,
+          docs: docsBlock,
+        }),
+      },
+    ],
+    onUsage,
+  });
+
+  // Split the response back into per-video sections by marker line.
+  const buckets = new Map();
+  let current = null;
+  for (const line of String(response).split("\n")) {
+    const match = line.match(/^<<<总结：(.*)>>>\s*$/);
+    if (match) {
+      current = markerTitle(match[1]);
+      if (!buckets.has(current)) buckets.set(current, []);
+      continue;
+    }
+    if (current) buckets.get(current).push(line);
+  }
+
+  const results = [];
+  let soloFallback = 0;
+  for (const entry of entries) {
+    const body = (buckets.get(entry.videoName) || []).join("\n").trim();
+    if (body) {
+      const file = join(dirname(entry.filePath), `AI总结_${sanitizeName(entry.videoName) || "未命名"}.md`);
+      writeFileSync(file, body + "\n", "utf8");
+      results.push({ filePath: entry.filePath, videoName: entry.videoName, file });
+    } else {
+      // The model skipped or mislabeled this doc — pay the solo cost for it
+      // rather than losing its summary.
+      soloFallback += 1;
+      onProgress?.(`正在补总结 ${entry.videoName}`, "批量响应缺失该视频，单独重试");
+      const solo = await summarizeExportedDoc({
+        settings,
+        filePath: entry.filePath,
+        focus,
+        onUsage,
+        requestCompletion,
+      });
+      results.push({ filePath: entry.filePath, videoName: solo.videoName, file: solo.file });
+    }
+  }
+  return { success: true, results, soloFallback };
 }

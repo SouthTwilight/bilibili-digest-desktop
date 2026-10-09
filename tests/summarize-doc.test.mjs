@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { splitDocIntoChunks, summarizeExportedDoc } from "../src/main/core/summarize-doc.js";
+import { splitDocIntoChunks, summarizeExportedDoc, summarizeDocsBatch } from "../src/main/core/summarize-doc.js";
 import { mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -110,5 +110,61 @@ test("summarizeExportedDoc 错误抛给调用方（NO_AI_KEY 保留错误码）"
     }),
     (error) => error.code === "NO_AI_KEY",
   );
+  rmSync(tmp, { recursive: true, force: true });
+});
+
+function writeBatchDocs() {
+  rmSync(tmp, { recursive: true, force: true });
+  mkdirSync(join(tmp, "视频A_BV1"), { recursive: true });
+  mkdirSync(join(tmp, "视频B_BV2"), { recursive: true });
+  writeFileSync(join(tmp, "视频A_BV1", "视频A_2026-01-01_10-00.md"), "# 视频A\n\n## 完整字幕\nA 内容", "utf8");
+  writeFileSync(join(tmp, "视频B_BV2", "视频B_2026-01-01_10-00.md"), "# 视频B\n\n## 完整字幕\nB 内容", "utf8");
+  return [
+    { filePath: join(tmp, "视频A_BV1", "视频A_2026-01-01_10-00.md"), title: "视频A_BV1" },
+    { filePath: join(tmp, "视频B_BV2", "视频B_2026-01-01_10-00.md"), title: "视频B_BV2" },
+  ];
+}
+
+test("summarizeDocsBatch 一次请求总结多文档并按标记拆分回写", async () => {
+  const docs = writeBatchDocs();
+  const prompts = [];
+  const result = await summarizeDocsBatch({
+    settings,
+    docs,
+    requestCompletion: async ({ messages }) => {
+      prompts.push(String(messages[0].content));
+      return "<<<总结：视频A>>>\n# A 总结\n\n<<<总结：视频B>>>\n# B 总结";
+    },
+  });
+  assert.equal(prompts.length, 1, "两个短文档合并为一次请求");
+  const prompt = prompts[0];
+  // 固定指令在最前（对前缀缓存友好），文档以分隔行拼接在后方。
+  assert.ok(prompt.indexOf("中文学习助手") < prompt.indexOf("<<<文档 1/2：视频A>>>"));
+  assert.ok(prompt.includes("<<<文档 2/2：视频B>>>"));
+  assert.ok(prompt.includes("A 内容") && prompt.includes("B 内容"));
+  assert.equal(result.soloFallback, 0);
+  assert.equal(result.results.length, 2);
+  assert.equal(readFileSync(join(tmp, "视频A_BV1", "AI总结_视频A.md"), "utf8"), "# A 总结\n");
+  assert.equal(readFileSync(join(tmp, "视频B_BV2", "AI总结_视频B.md"), "utf8"), "# B 总结\n");
+  rmSync(tmp, { recursive: true, force: true });
+});
+
+test("summarizeDocsBatch 响应缺标记时该文档回退单文档路径", async () => {
+  const docs = writeBatchDocs();
+  let call = 0;
+  const result = await summarizeDocsBatch({
+    settings,
+    docs,
+    requestCompletion: async () => {
+      call += 1;
+      // 第 1 次批量请求只返回了视频A 的总结，视频B 缺失。
+      if (call === 1) return "<<<总结：视频A>>>\n# A 总结";
+      return "# B 单独总结";
+    },
+  });
+  assert.equal(call, 2, "缺失的视频走一次单文档请求");
+  assert.equal(result.soloFallback, 1);
+  assert.equal(readFileSync(join(tmp, "视频A_BV1", "AI总结_视频A.md"), "utf8"), "# A 总结\n");
+  assert.equal(readFileSync(join(tmp, "视频B_BV2", "AI总结_视频B.md"), "utf8"), "# B 单独总结\n");
   rmSync(tmp, { recursive: true, force: true });
 });
