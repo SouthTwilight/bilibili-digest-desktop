@@ -360,6 +360,9 @@ function seek(seconds) {
   </div>
 
   <div v-else-if="transcript" class="transcript" @mouseup="onTranscriptMouseup">
+    <!-- Source/mode/export controls stay reachable while scrolling long
+         transcripts — full-bleed sticky bar over the panel scroll. -->
+    <div class="sticky-controls">
     <div class="transcript-meta">
       来源：{{ transcript.source === "bilibili-subtitle" ? (transcript.language === 'ai-zh' ? 'B站字幕·AI' : 'B站字幕·原生') : transcript.source === "aliyun-fun-asr" ? "百炼语音识别" : "豆包语音识别" }} ·
       {{ transcript.transcript.length }} 条
@@ -402,6 +405,7 @@ function seek(seconds) {
         @click="exportAllPagesNow"
       >导出全部P</button>
       <button v-if="collectionInfo" class="btn small" :disabled="exporting" @click="openCollectionExport">导出合集</button>
+    </div>
     </div>
 
     <!-- original mode: per-line, clickable timestamps -->

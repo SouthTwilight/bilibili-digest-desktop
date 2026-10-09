@@ -79,7 +79,7 @@ function seek(note) {
 <template>
   <div v-if="toast" class="note-toast">{{ toast }}</div>
 
-  <div class="notes-filter">
+  <div class="notes-filter sticky-controls">
     <button class="mode-btn" :class="{ active: !showAll }" @click="showAll = false">当前视频</button>
     <button class="mode-btn" :class="{ active: showAll }" @click="showAll = true">全部</button>
     <button class="btn ghost small" :disabled="saving || !notes.length" @click="exportNotes" style="margin-left: auto">整理笔记</button>

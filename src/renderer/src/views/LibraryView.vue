@@ -322,7 +322,7 @@ function prettyNotes(content) {
 
 <template>
   <div class="library-layout">
-    <div class="library-tree">
+    <div class="library-tree" :class="{ compact: !!preview }">
       <div class="library-toolbar">
         <span class="section-title" style="margin: 0">导出库</span>
         <button class="btn ghost small" title="扫描整个保存目录，批量总结所有还没有 AI 总结的文档" @click="openSummarizeAll">AI总结全部</button>

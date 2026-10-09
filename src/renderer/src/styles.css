@@ -309,8 +309,23 @@ html {
 .collection-export-row-status.warn { color: #c07a2a; }
 
 .library-layout { display: flex; flex-direction: column; gap: 12px; height: 100%; }
-.library-tree { flex: 0 0 auto; max-height: 45%; overflow-y: auto; }
-.library-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+/* The tree fills the whole panel while nothing is previewed; with a preview
+ * open it shrinks to the upper portion. The toolbar sticks to the top of
+ * the scrolling tree so it stays reachable in long libraries. */
+.library-tree { flex: 1; min-height: 0; overflow-y: auto; }
+.library-tree.compact { flex: 0 0 auto; max-height: 45%; }
+.library-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding: 6px 0 8px;
+  background: var(--surface-soft);
+  border-bottom: 1px solid var(--line);
+}
 .lib-row { display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-radius: 7px; font-size: 13px; cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .lib-row:hover { background: var(--surface); }
 .lib-row.active { background: rgba(251,114,153,.1); }
@@ -404,3 +419,17 @@ html {
 
 .summarize-status { font-size: 12px; color: var(--muted); flex: 0 0 auto; }
 .preview-head { flex-wrap: wrap; row-gap: 4px; }
+
+/* ---- full-bleed sticky control bar (panel-scrolled pages) ---- */
+/* Cancels the panel's 16px/18px padding so the bar bleeds to the panel
+ * edges; scrolled content then passes beneath an opaque bar. Defined last
+ * so its margins override the per-view toolbar rules. */
+.sticky-controls {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  margin: -16px -18px 10px;
+  padding: 12px 18px 10px;
+  background: var(--surface-soft);
+  border-bottom: 1px solid var(--line);
+}
