@@ -26,10 +26,26 @@ export function videoFolderName(videoTitle, bvid) {
   return `${sanitizeDirName(videoTitle) || "未命名视频"}_${bvid}`;
 }
 
-// Notes live in the user's save directory, one folder per video:
-//   {saveDir}/{合集名}/{视频名_BV号}/notes.json   (in a collection)
-//   {saveDir}/{视频名_BV号}/notes.json            (standalone video)
-// The same folder will later hold exported transcripts and summaries (M4).
+// Unified three-level library layout — the single source of truth shared by
+// exports, notes and pictures:
+//   collection video      → {合集名}/{视频名_BV号}/
+//   standalone multi-P    → {视频名_BV号}/P{n}/
+//   standalone single-P   → {UP主名}/{视频名_BV号}/
+// The BV suffix keeps same-titled videos (and same-named UPs' folders) from
+// colliding; the UP grouping merges all of one uploader's videos.
+export function resolveVideoDir({ base, collectionTitle, channelName, videoTitle, bvid, pageCount, page }) {
+  const videoDir = videoFolderName(videoTitle, bvid);
+  if (collectionTitle) {
+    return join(base, sanitizeDirName(collectionTitle) || "合集", videoDir);
+  }
+  if (Number(pageCount) > 1) {
+    return join(base, videoDir, `P${Math.max(1, Number(page) || 1)}`);
+  }
+  return join(base, sanitizeDirName(channelName) || "其他UP主", videoDir);
+}
+
+// Notes live in the user's save directory in the same three-level layout as
+// exports; the video folder also holds pictures and, later, summaries.
 export function createNotesStore({ saveDirResolver, legacyPath }) {
   function migratedLegacyNotes() {
     try {
@@ -41,21 +57,16 @@ export function createNotesStore({ saveDirResolver, legacyPath }) {
     }
   }
 
-  function storeFile({ collectionTitle, videoTitle, bvid }) {
-    const videoDir = videoFolderName(videoTitle, bvid);
-    const base = saveDirResolver() || ".";
-    return collectionTitle
-      ? join(base, sanitizeDirName(collectionTitle) || "合集", videoDir, "notes.json")
-      : join(base, videoDir, "notes.json");
+  function storeFile(context) {
+    return join(
+      resolveVideoDir({ ...context, base: saveDirResolver() || "." }),
+      "notes.json",
+    );
   }
 
   // The video's own folder (for exports, pictures, summaries).
-  function videoDir({ collectionTitle, videoTitle, bvid }) {
-    const base = saveDirResolver() || ".";
-    const dir = videoFolderName(videoTitle, bvid);
-    return collectionTitle
-      ? join(base, sanitizeDirName(collectionTitle) || "合集", dir)
-      : join(base, dir);
+  function videoDir(context) {
+    return resolveVideoDir({ ...context, base: saveDirResolver() || "." });
   }
 
   function savePicture(dir, imageBase64, noteId, timestamp) {
@@ -89,12 +100,13 @@ export function createNotesStore({ saveDirResolver, legacyPath }) {
   return {
     videoDir,
 
-    add({ bvid, timestamp, text, videoTitle, channelName, collectionTitle, imageBase64 }) {
-      const file = storeFile({ collectionTitle, videoTitle, bvid });
+    add({ bvid, timestamp, text, videoTitle, channelName, collectionTitle, pageCount, page, imageBase64 }) {
+      const context = { collectionTitle, channelName, videoTitle, bvid, pageCount, page };
+      const file = storeFile(context);
       const notes = readFile(file);
       const note = {
         id: randomUUID(),
-        videoId: `${bvid}@p1`,
+        videoId: `${bvid}@p${Math.max(1, Number(page) || 1)}`,
         bvid,
         timestamp: Math.max(0, Math.floor(Number(timestamp) || 0)),
         text: String(text || "").trim(),
@@ -106,12 +118,7 @@ export function createNotesStore({ saveDirResolver, legacyPath }) {
       };
       if (imageBase64) {
         try {
-          note.picture = savePicture(
-            videoDir({ collectionTitle, videoTitle, bvid }),
-            imageBase64,
-            note.id,
-            note.timestamp,
-          );
+          note.picture = savePicture(videoDir(context), imageBase64, note.id, note.timestamp);
         } catch {
           // A failed screenshot must never block the note itself.
         }
@@ -121,38 +128,34 @@ export function createNotesStore({ saveDirResolver, legacyPath }) {
       return note;
     },
 
-    listFor({ bvid, videoTitle, collectionTitle }) {
-      const file = storeFile({ collectionTitle, videoTitle, bvid });
-      const legacy = legacyPending.filter((note) => note.videoId?.startsWith(bvid));
+    listFor(context) {
+      const file = storeFile(context);
+      const legacy = legacyPending.filter((note) => note.videoId?.startsWith(context.bvid));
       if (legacy.length) {
         const merged = [...readFile(file), ...legacy];
-        legacyPending = legacyPending.filter((note) => !note.videoId?.startsWith(bvid));
+        legacyPending = legacyPending.filter((note) => !note.videoId?.startsWith(context.bvid));
         if (merged.length) writeFile(file, merged);
         return merged.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
       }
       return readFile(file).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     },
 
-    // Walk the save directory: standalone videos match */notes.json, videos in
-    // collections match */*/notes.json. The parent folder name identifies the
-    // collection, grandparent identifies the video folder.
+    // Walk the save directory: notes.json at depth one (legacy standalone
+    // video folder) or depth two (collection / UP / multi-P video grouping).
+    // A multi-P video folder can hold BOTH a legacy direct notes.json and
+    // new P*/notes.json — both are collected.
     listAll() {
       const base = saveDirResolver() || ".";
       const notes = [];
       try {
         for (const entry of readdirSync(base, { withFileTypes: true })) {
           if (!entry.isDirectory()) continue;
-          const collectionName = entry.name;
-          const collectionDir = join(base, collectionName);
-          // Direct notes.json = standalone video folder.
-          const direct = join(collectionDir, "notes.json");
-          if (existsSync(direct)) {
-            notes.push(...readFile(direct));
-            continue;
-          }
-          for (const videoEntry of readdirSync(collectionDir, { withFileTypes: true })) {
+          const groupDir = join(base, entry.name);
+          const direct = join(groupDir, "notes.json");
+          if (existsSync(direct)) notes.push(...readFile(direct));
+          for (const videoEntry of readdirSync(groupDir, { withFileTypes: true })) {
             if (!videoEntry.isDirectory()) continue;
-            const file = join(collectionDir, videoEntry.name, "notes.json");
+            const file = join(groupDir, videoEntry.name, "notes.json");
             if (existsSync(file)) notes.push(...readFile(file));
           }
         }
@@ -171,12 +174,10 @@ export function createNotesStore({ saveDirResolver, legacyPath }) {
           const dir = join(base, entry.name);
           const direct = join(dir, "notes.json");
           if (existsSync(direct)) targets.push(direct);
-          else {
-            for (const sub of readdirSync(dir, { withFileTypes: true })) {
-              if (sub.isDirectory()) {
-                const f = join(dir, sub.name, "notes.json");
-                if (existsSync(f)) targets.push(f);
-              }
+          for (const sub of readdirSync(dir, { withFileTypes: true })) {
+            if (sub.isDirectory()) {
+              const f = join(dir, sub.name, "notes.json");
+              if (existsSync(f)) targets.push(f);
             }
           }
         }

@@ -20,7 +20,12 @@ export async function videoNoteContext() {
   return {
     bvid: currentVideo.value.bvid,
     videoTitle: videoDetails.value?.title || "",
+    channelName: videoDetails.value?.channelName || "",
     collectionTitle: await collectionTitleFor(currentVideo.value.bvid),
+    // The three-level layout routes standalone multi-P notes into the
+    // per-P folder and standalone singles into the uploader's folder.
+    page: currentVideo.value.page || 1,
+    pageCount: videoDetails.value?.pageCount || 1,
   };
 }
 
@@ -73,8 +78,10 @@ export async function takeNoteAt(seconds) {
     timestamp: seconds,
     text,
     videoTitle: context?.videoTitle || "",
-    channelName: videoDetails.value?.channelName || "",
+    channelName: context?.channelName || "",
     collectionTitle: context?.collectionTitle || "",
+    page: context?.page || 1,
+    pageCount: context?.pageCount || 1,
     imageBase64,
   });
     return { ok: true, timestamp: seconds };

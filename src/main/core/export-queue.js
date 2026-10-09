@@ -4,18 +4,8 @@ import { mkdirSync, writeFileSync, statSync } from "node:fs";
 import { fetchTranscript } from "./transcript-service.js";
 import { fetchBilibiliView } from "./bilibili.js";
 import { buildMarkdownExport, buildHtmlExport, exportFileName } from "./export-render.js";
-import { videoFolderName } from "./notes.js";
+import { resolveVideoDir } from "./notes.js";
 import { summarizeExportedDoc, summarizeDocsBatch as runSummarizeDocsBatch } from "./summarize-doc.js";
-
-function sanitizeDirName(name) {
-  return String(name || "")
-    .replace(/[\\/:*?"<>|]/g, "")
-    .replace(/[＼／：＊？＂＜＞｜]/g, "")
-    .replace(/[\u0000-\u001f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .substring(0, 60);
-}
 
 // Task queue for exports and AI summaries. Three lanes with different
 // concurrency:
@@ -95,14 +85,22 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, su
     };
   }
 
-  function targetFile(task, item, format, page) {
-    const base = settingsStore.load().saveDir || ".";
-    const videoDir = videoFolderName(item.videoTitle || item.title, item.bvid);
-    const folder = task.collectionTitle
-      ? join(base, sanitizeDirName(task.collectionTitle) || "合集", videoDir)
-      : join(base, videoDir);
-    const pageLabel = page || item.page || 1;
-    return join(folder, `${exportFileName(item.videoTitle || item.title, pageLabel)}.${format}`);
+  // Unified three-level layout (shared with notes/pictures via
+  // resolveVideoDir): collection videos under {合集}/{视频名_BV}/, standalone
+  // multi-P videos under {视频名_BV}/P{n}/, standalone singles grouped by
+  // uploader under {UP主}/{视频名_BV}/.
+  function targetFile(task, item, format, page, view) {
+    const title = view?.title || item.videoTitle || item.title;
+    const dir = resolveVideoDir({
+      base: settingsStore.load().saveDir || ".",
+      collectionTitle: task.collectionTitle || "",
+      channelName: view?.owner?.name || "",
+      videoTitle: title,
+      bvid: item.bvid,
+      pageCount: view?.pages?.length || 0,
+      page: page || item.page || 1,
+    });
+    return join(dir, `${exportFileName(title, page || item.page || 1)}.${format}`);
   }
 
   async function runItem(task, item) {
@@ -183,7 +181,7 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, su
           };
           const content =
             format === "html" ? buildHtmlExport(video) : buildMarkdownExport(video);
-          const file = targetFile(task, { ...item, videoTitle: baseVideo.title }, format, page);
+          const file = targetFile(task, { ...item, videoTitle: baseVideo.title }, format, page, view);
           mkdirSync(join(file, ".."), { recursive: true });
           writeFileSync(file, content, "utf8");
           firstFile ||= file;
@@ -210,7 +208,7 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, su
 
       const content =
         format === "html" ? buildHtmlExport(video) : buildMarkdownExport(video);
-      const file = targetFile(task, { ...item, videoTitle: video.title }, format, page);
+      const file = targetFile(task, { ...item, videoTitle: video.title }, format, page, view);
       mkdirSync(join(file, ".."), { recursive: true });
       writeFileSync(file, content, "utf8");
       item.itemStatus = "done";
