@@ -118,18 +118,25 @@ async function runSummarize() {
 const batchModal = ref(null); // { collection, scope, videos, loading, error, focus }
 const batchSubmitting = ref(false);
 
-async function openBatchSummarize(node) {
+const batchModalTitle = computed(() => {
+  const modal = batchModal.value;
+  if (!modal) return "";
+  if (modal.scope === "library") return "总结全部：整个导出库";
+  return `总结${modal.scope === "video" ? "视频分P" : "合集"}：${modal.collection.name}`;
+});
+
+// Shared batch-summarize modal opening: collections batch over their video
+// folders, a standalone multi-P video over its per-P export files, and the
+// library scope over every summarizable document in the save dir.
+async function openBatchModal(scope, name, preview) {
   if (anyModalOpen()) return;
   window.desktop.setViewVisible(false);
-  // Collections batch over their video folders; a standalone multi-P video
-  // batches over its per-P export files — same capability either way.
-  const scope = node.type === "video" ? "video" : "collection";
-  batchModal.value = { collection: node, scope, videos: [], loading: true, error: "", focus: "" };
+  batchModal.value = { collection: { name }, scope, videos: [], loading: true, error: "", focus: "" };
   try {
     const settings = await window.desktop.getSettings();
     batchModal.value.focus = settings.lastSummaryFocus || "";
   } catch {}
-  const result = await window.desktop.summaryBatchPreview(node.path);
+  const result = await preview;
   // Guard against the modal having been closed while scanning.
   if (!batchModal.value) return;
   batchModal.value.loading = false;
@@ -143,6 +150,18 @@ async function openBatchSummarize(node) {
     ...video,
     selected: !!video.file && !video.hasSummary,
   }));
+}
+
+function openBatchSummarize(node) {
+  return openBatchModal(
+    node.type === "video" ? "video" : "collection",
+    node.name,
+    window.desktop.summaryBatchPreview(node.path),
+  );
+}
+
+function openSummarizeAll() {
+  return openBatchModal("library", "整个导出库", window.desktop.summaryBatchPreview(null, true));
 }
 
 function closeBatchModal() {
@@ -173,12 +192,12 @@ async function confirmBatchSummarize() {
   batchSubmitting.value = true;
   try {
     const result = await window.desktop.summaryEnqueue(
-      modal.collection.name,
+      modal.scope === "library" ? "整个导出库" : modal.collection.name,
       picked.map((video) => ({ filePath: video.file, title: video.name })),
       modal.focus,
     );
     if (result.success) {
-      const unit = modal.scope === "video" ? "个分P" : "个视频";
+      const unit = modal.scope === "library" ? "个文档" : modal.scope === "video" ? "个分P" : "个视频";
       showAppNotice({ kind: "summary", ok: true, title: `已加入任务队列：批量总结（${picked.length} ${unit}）` });
       closeBatchModal();
     } else {
@@ -306,6 +325,7 @@ function prettyNotes(content) {
     <div class="library-tree">
       <div class="library-toolbar">
         <span class="section-title" style="margin: 0">导出库</span>
+        <button class="btn ghost small" title="扫描整个保存目录，批量总结所有还没有 AI 总结的文档" @click="openSummarizeAll">AI总结全部</button>
         <button class="btn ghost small" @click="refresh">刷新</button>
       </div>
       <div v-if="loading" class="placeholder">正在扫描保存目录…</div>
@@ -420,7 +440,7 @@ function prettyNotes(content) {
 
     <div v-if="batchModal" class="explain-overlay" @click.self="closeBatchModal">
       <div class="focus-dialog batch-dialog">
-        <h3>总结{{ batchModal.scope === "video" ? "视频分P" : "合集" }}：{{ batchModal.collection.name }}</h3>
+        <h3>{{ batchModalTitle }}</h3>
         <div v-if="batchModal.loading" class="placeholder">正在读取合集视频…</div>
         <p v-else-if="batchModal.error" class="batch-error">{{ batchModal.error }}</p>
         <template v-else>

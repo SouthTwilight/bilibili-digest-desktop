@@ -5,7 +5,7 @@ import { mkdirSync, writeFileSync, rmSync, readFileSync, utimesSync } from "node
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { packSummaries } from "../src/main/core/summary-pack.js";
-import { scanFolderForSummary } from "../src/main/core/library.js";
+import { scanFolderForSummary, scanLibraryForSummary } from "../src/main/core/library.js";
 
 // fileURLToPath (not URL.pathname) so the path carries native separators —
 // the modules under test compare it with startsWith against join()ed paths.
@@ -71,6 +71,39 @@ test("scanFolderForSummary 独立多P视频文件夹：按导出文件直接条�
   assert.equal(result.videos[0].hasSummary, true);
   assert.equal(result.videos[1].hasSummary, false);
   assert.equal(result.videos[0].dir, solo);
+  rmSync(base, { recursive: true, force: true });
+});
+
+test("scanLibraryForSummary 全库递归：合集/UP/多P/旧布局全覆盖", () => {
+  writeLibrary();
+  // UP主分组：两个视频，其一已有总结。
+  mkdirSync(join(base, "UP主甲", "视频甲_BV5555555555"), { recursive: true });
+  mkdirSync(join(base, "UP主甲", "视频乙_BV6666666666"), { recursive: true });
+  writeFileSync(join(base, "UP主甲", "视频甲_BV5555555555", "视频甲_2026-01-01_10-00.md"), "# 甲");
+  writeFileSync(join(base, "UP主甲", "视频乙_BV6666666666", "视频乙_2026-01-01_10-00.md"), "# 乙");
+  writeFileSync(join(base, "UP主甲", "视频乙_BV6666666666", "AI总结_视频乙.md"), "# 乙总结");
+  // 多P视频：P1/P2 文件夹。
+  mkdirSync(join(base, "教程_BV9999999999", "P1"), { recursive: true });
+  mkdirSync(join(base, "教程_BV9999999999", "P2"), { recursive: true });
+  writeFileSync(join(base, "教程_BV9999999999", "P1", "教程_P1_2026-01-01_10-00.md"), "# 教程 P1");
+  writeFileSync(join(base, "教程_BV9999999999", "P2", "教程_P2_2026-01-01_10-00.md"), "# 教程 P2");
+  // 旧布局：顶层独立视频文件夹直接放文件。
+  mkdirSync(join(base, "旧视频_BV7777777777"), { recursive: true });
+  writeFileSync(join(base, "旧视频_BV7777777777", "旧视频_2026-01-01_10-00.md"), "# 旧");
+
+  const result = scanLibraryForSummary(base);
+  assert.equal(result.success, true);
+  const names = result.videos.map((v) => v.name);
+  // writeLibrary 建的「合集」里 视频一 + 视频P（P1/P2），UP主 2 条，多P 2 条，旧布局 1 条。
+  assert.ok(names.includes("合集/视频一_BV1111111111"), names.join(","));
+  assert.ok(names.includes("合集/视频P_BV3333333333（P1）"), names.join(","));
+  assert.ok(names.includes("UP主甲/视频甲_BV5555555555"), names.join(","));
+  assert.ok(names.includes("教程_BV9999999999/P1"), names.join(","));
+  assert.ok(names.includes("旧视频"), names.join(","));
+  const upVideo = result.videos.find((v) => v.name === "UP主甲/视频乙_BV6666666666");
+  assert.equal(upVideo.hasSummary, true);
+  const part2 = result.videos.find((v) => v.name === "教程_BV9999999999/P2");
+  assert.ok(part2.file.endsWith("教程_P2_2026-01-01_10-00.md"));
   rmSync(base, { recursive: true, force: true });
 });
 

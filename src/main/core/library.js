@@ -190,4 +190,57 @@ function scanFolderForSummary(saveDir, folderPath) {
   return { success: true, videos };
 }
 
-export { scanLibrary, readLibraryFile, scanFolderForSummary };
+// Whole-library scan for “AI总结全部”: one entry per summarizable document
+// across every grouping shape — collections/uploaders (video folders
+// inside), multi-P videos (P folders inside) and legacy standalone folders
+// (files directly inside a top-level video folder).
+function scanLibraryForSummary(saveDir) {
+  const base = String(saveDir || "");
+  if (!base || !existsSync(base)) return { success: false, error: "保存目录不存在。" };
+  let tops;
+  try {
+    tops = readdirSync(base, { withFileTypes: true });
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+  const videos = [];
+  for (const top of tops) {
+    if (!top.isDirectory()) continue;
+    const topDir = join(base, top.name);
+    let subs;
+    try {
+      subs = readdirSync(topDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    // Legacy standalone video folder (or loose docs): files directly inside.
+    const directNames = subs.filter((e) => e.isFile()).map((e) => e.name);
+    videos.push(...summarizeFileEntries(topDir, directNames, (fileTitle) => fileTitle));
+    // Group folders (collection / uploader / multi-P video): one entry per
+    // video or P folder inside, labeled group/folder. A video folder's per-P
+    // FILES carry the (Pn) marker in the label; a P folder already has it.
+    for (const sub of subs) {
+      if (!sub.isDirectory() || sub.name === "picture") continue;
+      const subDir = join(topDir, sub.name);
+      const isPartFolder = /^P\d+$/.test(sub.name);
+      let names = [];
+      try {
+        names = readdirSync(subDir);
+      } catch {
+        continue;
+      }
+      videos.push(
+        ...summarizeFileEntries(subDir, names, (fileTitle) => {
+          const base = `${top.name}/${sub.name}`;
+          if (isPartFolder) return base;
+          const part = fileTitle.match(/_P(\d+)$/);
+          return part ? `${base}（${part[0].slice(1)}）` : base;
+        }),
+      );
+    }
+  }
+  videos.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  return { success: true, videos };
+}
+
+export { scanLibrary, readLibraryFile, scanFolderForSummary, scanLibraryForSummary };
