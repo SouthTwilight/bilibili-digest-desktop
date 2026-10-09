@@ -426,10 +426,13 @@ html {
  * so its margins override the per-view toolbar rules. */
 .sticky-controls {
   position: sticky;
-  top: 0;
+  /* Overshoot the scrollport top by the panel's padding so the visible edge
+     lands flush regardless of how the sticky box's margins are accounted
+     for; the overshooting part is clipped by the scrollport. */
+  top: -16px;
   z-index: 6;
   margin: -16px -18px 10px;
-  padding: 12px 18px 10px;
+  padding: 18px 18px 10px;
   background: var(--surface-soft);
   border-bottom: 1px solid var(--line);
 }
