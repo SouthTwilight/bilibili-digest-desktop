@@ -115,13 +115,16 @@ async function runSummarize() {
 
 // ---- collection batch summarize -------------------------------------------
 
-const batchModal = ref(null); // { collection, videos, loading, error, focus }
+const batchModal = ref(null); // { collection, scope, videos, loading, error, focus }
 const batchSubmitting = ref(false);
 
 async function openBatchSummarize(node) {
   if (anyModalOpen()) return;
   window.desktop.setViewVisible(false);
-  batchModal.value = { collection: node, videos: [], loading: true, error: "", focus: "" };
+  // Collections batch over their video folders; a standalone multi-P video
+  // batches over its per-P export files — same capability either way.
+  const scope = node.type === "video" ? "video" : "collection";
+  batchModal.value = { collection: node, scope, videos: [], loading: true, error: "", focus: "" };
   try {
     const settings = await window.desktop.getSettings();
     batchModal.value.focus = settings.lastSummaryFocus || "";
@@ -131,7 +134,7 @@ async function openBatchSummarize(node) {
   if (!batchModal.value) return;
   batchModal.value.loading = false;
   if (!result.success) {
-    batchModal.value.error = result.error || "读取合集失败";
+    batchModal.value.error = result.error || "读取文件夹失败";
     return;
   }
   // Default: summarize everything not yet summarized — re-running the ones
@@ -175,7 +178,8 @@ async function confirmBatchSummarize() {
       modal.focus,
     );
     if (result.success) {
-      showAppNotice({ kind: "summary", ok: true, title: `已加入任务队列：合集总结（${picked.length} 个视频）` });
+      const unit = modal.scope === "video" ? "个分P" : "个视频";
+      showAppNotice({ kind: "summary", ok: true, title: `已加入任务队列：批量总结（${picked.length} ${unit}）` });
       closeBatchModal();
     } else {
       modal.error = result.error || "入队失败";
@@ -355,6 +359,7 @@ function prettyNotes(content) {
               <span class="lib-caret">{{ node.open ? "▾" : "▸" }}</span>
               <span class="lib-name">🎬 {{ node.name }}</span>
               <span class="lib-actions">
+                <button class="lib-action-btn" title="对该视频的所有分P/导出文档批量生成 AI 总结" @click.stop="openBatchSummarize(node)">AI总结</button>
                 <button class="lib-action-btn" title="把这个视频的 AI 总结打包为 zip" @click.stop="packVideo(node)">打包</button>
               </span>
             </div>
@@ -415,14 +420,14 @@ function prettyNotes(content) {
 
     <div v-if="batchModal" class="explain-overlay" @click.self="closeBatchModal">
       <div class="focus-dialog batch-dialog">
-        <h3>总结合集：{{ batchModal.collection.name }}</h3>
+        <h3>总结{{ batchModal.scope === "video" ? "视频分P" : "合集" }}：{{ batchModal.collection.name }}</h3>
         <div v-if="batchModal.loading" class="placeholder">正在读取合集视频…</div>
         <p v-else-if="batchModal.error" class="batch-error">{{ batchModal.error }}</p>
         <template v-else>
           <div class="batch-toolbar">
             <label class="batch-check">
               <input type="checkbox" :checked="batchAllChecked" @change="toggleBatchAll" />
-              全选有字幕文档的视频
+              全选有字幕文档的条目
             </label>
             <span class="batch-hint">已总结的默认跳过，重新勾选将覆盖</span>
           </div>
@@ -438,7 +443,7 @@ function prettyNotes(content) {
               <span v-if="!video.file" class="batch-badge">无字幕文档</span>
               <span v-else-if="video.hasSummary" class="batch-badge done">已有总结</span>
             </label>
-            <div v-if="!batchModal.videos.length" class="placeholder">合集下没有视频文件夹。</div>
+            <div v-if="!batchModal.videos.length" class="placeholder">这里没有可总结的 Markdown 文档。</div>
           </div>
           <textarea
             v-model="batchModal.focus"

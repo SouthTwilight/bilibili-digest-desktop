@@ -38,7 +38,7 @@ export function buildFinishedNotice(task) {
   const failed = results.length - succeeded.length;
   if (task.type === "summary") {
     const scope = task.collectionTitle
-      ? `合集总结完成：${task.collectionTitle}`
+      ? `批量总结完成：${task.collectionTitle}`
       : `AI 总结完成：${succeeded[0]?.title || results[0]?.title || ""}`;
     const suffix =
       failed > 0

@@ -114,14 +114,48 @@ function readLibraryFile(saveDir, filePath) {
   }
 }
 
-// Enumerate a collection's video folders for batch AI summarization. Inputs
-// are plain transcript exports (AI 总结 and 笔记 outputs are excluded); every
-// file is its own entry — per-P exports are separate documents sharing one
-// video folder, and each P summarizes independently (AI总结_视频名_Pn.md).
-// Re-exports carry timestamps, so only the newest file per base name is kept.
-function scanCollectionForSummary(saveDir, collectionPath) {
+// Build one summarizable entry per candidate export file in a folder.
+// Inputs are plain transcript exports (AI 总结 and 笔记 outputs are
+// excluded); re-exports carry timestamps so only the newest file per base
+// name is kept, per-P files become separate entries, and hasSummary is
+// checked per entry (AI总结_视频名_Pn.md).
+function summarizeFileEntries(dir, names, labelFor) {
+  const nameSet = new Set(names);
+  const byBase = new Map();
+  for (const name of names) {
+    if (!name.toLowerCase().endsWith(".md") || /^AI总结_/i.test(name) || /^笔记_/.test(name)) {
+      continue;
+    }
+    const fileTitle = name
+      .replace(/\.md$/i, "")
+      .replace(/[_-]\d{4}-\d{2}-\d{2}_\d{2}-\d{2}$/, "");
+    const path = join(dir, name);
+    let mtime = 0;
+    try {
+      mtime = statSync(path).mtimeMs;
+    } catch {}
+    const prev = byBase.get(fileTitle);
+    if (!prev || mtime > prev.mtime) byBase.set(fileTitle, { path, fileTitle, mtime });
+  }
+  const partOrder = (fileTitle) => Number(fileTitle.match(/_P(\d+)$/)?.[1] || 0);
+  return Array.from(byBase.values())
+    .sort((a, b) => partOrder(a.fileTitle) - partOrder(b.fileTitle))
+    .map(({ path, fileTitle }) => ({
+      name: labelFor(fileTitle),
+      dir,
+      file: path,
+      hasSummary: nameSet.has(`AI总结_${fileTitle}.md`),
+    }));
+}
+
+// Enumerate a library folder for batch AI summarization. Handles BOTH
+// shapes: a collection folder (entries come from its video subfolders) and a
+// standalone multi-P video folder (its per-P export files are entries in
+// their own right — a multi-P video gets the same batch treatment a
+// collection gets).
+function scanFolderForSummary(saveDir, folderPath) {
   const base = String(saveDir || "");
-  const target = String(collectionPath || "");
+  const target = String(folderPath || "");
   if (!base || !target.startsWith(base)) {
     return { success: false, error: "文件不在当前保存目录内。" };
   }
@@ -132,6 +166,10 @@ function scanCollectionForSummary(saveDir, collectionPath) {
     return { success: false, error: error.message };
   }
   const videos = [];
+  // Files directly inside the folder (standalone video exports / loose docs
+  // in a collection folder) label by their file title.
+  const directNames = entries.filter((e) => e.isFile()).map((e) => e.name);
+  videos.push(...summarizeFileEntries(target, directNames, (fileTitle) => fileTitle));
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name === "picture") continue;
     const dir = join(target, entry.name);
@@ -141,37 +179,15 @@ function scanCollectionForSummary(saveDir, collectionPath) {
     } catch {
       continue;
     }
-    const nameSet = new Set(names);
-    const byBase = new Map();
-    for (const name of names) {
-      if (!name.toLowerCase().endsWith(".md") || /^AI总结_/i.test(name) || /^笔记_/.test(name)) {
-        continue;
-      }
-      const fileTitle = name
-        .replace(/\.md$/i, "")
-        .replace(/[_-]\d{4}-\d{2}-\d{2}_\d{2}-\d{2}$/, "");
-      const path = join(dir, name);
-      let mtime = 0;
-      try {
-        mtime = statSync(path).mtimeMs;
-      } catch {}
-      const prev = byBase.get(fileTitle);
-      if (!prev || mtime > prev.mtime) byBase.set(fileTitle, { path, fileTitle, mtime });
-    }
-    const partOrder = (fileTitle) => Number(fileTitle.match(/_P(\d+)$/)?.[1] || 0);
-    const bases = Array.from(byBase.values()).sort((a, b) => partOrder(a.fileTitle) - partOrder(b.fileTitle));
-    for (const { path, fileTitle } of bases) {
-      const part = fileTitle.match(/_P(\d+)$/);
-      videos.push({
-        name: part ? `${entry.name}（${part[0].slice(1)}）` : entry.name,
-        dir,
-        file: path,
-        hasSummary: nameSet.has(`AI总结_${fileTitle}.md`),
-      });
-    }
+    videos.push(
+      ...summarizeFileEntries(dir, names, (fileTitle) => {
+        const part = fileTitle.match(/_P(\d+)$/);
+        return part ? `${entry.name}（${part[0].slice(1)}）` : entry.name;
+      }),
+    );
   }
-  videos.sort((a, b) => a.name.localeCompare(b.name));
+  videos.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
   return { success: true, videos };
 }
 
-export { scanLibrary, readLibraryFile, scanCollectionForSummary };
+export { scanLibrary, readLibraryFile, scanFolderForSummary };

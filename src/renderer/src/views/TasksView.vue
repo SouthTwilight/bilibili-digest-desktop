@@ -23,7 +23,7 @@ onUnmounted(() => off.forEach((fn) => fn()));
 function taskLabel(task) {
   if (task.type === "summary") {
     return task.collectionTitle
-      ? `合集总结：${task.collectionTitle}`
+      ? `批量总结：${task.collectionTitle}`
       : `AI 总结：${task.results?.[0]?.title || ""}`;
   }
   return task.type === "collection" ? `合集导出：${task.collectionTitle}` : "单视频导出";

@@ -74,7 +74,7 @@ test("summary 任务：单文档成功走 summary 通知", () => {
   assert.equal(n.file, "D:/x/AI总结_视频A.md");
 });
 
-test("summary 任务：合集全部成功标题带数量", () => {
+test("summary 任务：批量全部成功标题带数量", () => {
   const n = buildFinishedNotice({
     status: "done",
     type: "summary",
@@ -86,7 +86,7 @@ test("summary 任务：合集全部成功标题带数量", () => {
   });
   assert.equal(n.kind, "summary");
   assert.equal(n.ok, true);
-  assert.equal(n.title, "合集总结完成：合集X（2 个视频）");
+  assert.equal(n.title, "批量总结完成：合集X（2 个视频）");
   assert.equal(n.file, "a");
 });
 
@@ -101,5 +101,5 @@ test("summary 任务：部分失败 ok=false 且标题带计数", () => {
     ],
   });
   assert.equal(n.ok, false);
-  assert.equal(n.title, "合集总结完成：合集X（成功 1，失败 1）");
+  assert.equal(n.title, "批量总结完成：合集X（成功 1，失败 1）");
 });

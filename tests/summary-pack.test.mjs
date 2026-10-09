@@ -5,7 +5,7 @@ import { mkdirSync, writeFileSync, rmSync, readFileSync, utimesSync } from "node
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { packSummaries } from "../src/main/core/summary-pack.js";
-import { scanCollectionForSummary } from "../src/main/core/library.js";
+import { scanFolderForSummary } from "../src/main/core/library.js";
 
 // fileURLToPath (not URL.pathname) so the path carries native separators —
 // the modules under test compare it with startsWith against join()ed paths.
@@ -33,9 +33,9 @@ function writeLibrary() {
   return { v1, v2, vp };
 }
 
-test("scanCollectionForSummary 按文件条目化：每P一项、按P识别已有总结", () => {
+test("scanFolderForSummary 合集模式：每P一项、按P识别已有总结", () => {
   writeLibrary();
-  const result = scanCollectionForSummary(base, join(base, "合集"));
+  const result = scanFolderForSummary(base, join(base, "合集"));
   assert.equal(result.success, true);
   const one = result.videos.find((v) => v.name === "视频一_BV1111111111");
   assert.equal(one.hasSummary, true);
@@ -51,8 +51,26 @@ test("scanCollectionForSummary 按文件条目化：每P一项、按P识别已�
   assert.equal(parts[1].hasSummary, false);
   assert.ok(parts[1].file.endsWith("视频P_P2_2026-01-01_10-00.md"));
 
-  const outside = scanCollectionForSummary(base, "D:/elsewhere");
+  const outside = scanFolderForSummary(base, "D:/elsewhere");
   assert.equal(outside.success, false);
+  rmSync(base, { recursive: true, force: true });
+});
+
+test("scanFolderForSummary 独立多P视频文件夹：按导出文件直接条目化", () => {
+  writeLibrary();
+  const solo = join(base, "教程_BV9999999999");
+  mkdirSync(solo, { recursive: true });
+  writeFileSync(join(solo, "教程_P1_2026-01-01_10-00.md"), "# 教程 P1");
+  writeFileSync(join(solo, "教程_P2_2026-01-01_10-00.md"), "# 教程 P2");
+  writeFileSync(join(solo, "AI总结_教程_P1.md"), "# P1 总结");
+  const result = scanFolderForSummary(base, solo);
+  assert.equal(result.success, true);
+  assert.equal(result.videos.length, 2);
+  assert.equal(result.videos[0].name, "教程_P1");
+  assert.equal(result.videos[1].name, "教程_P2");
+  assert.equal(result.videos[0].hasSummary, true);
+  assert.equal(result.videos[1].hasSummary, false);
+  assert.equal(result.videos[0].dir, solo);
   rmSync(base, { recursive: true, force: true });
 });
 

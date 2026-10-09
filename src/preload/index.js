@@ -16,8 +16,8 @@ contextBridge.exposeInMainWorld("desktop", {
   captureFrame: () => ipcRenderer.invoke("video:capture-frame"),
   exportNotes: (video) => ipcRenderer.invoke("notes:export", video),
   openWithDefaultApp: (filePath) => ipcRenderer.invoke("library:open", { filePath }),
-  summaryBatchPreview: (collectionPath) =>
-    ipcRenderer.invoke("summary:batch-preview", { collectionPath }),
+  summaryBatchPreview: (folderPath) =>
+    ipcRenderer.invoke("summary:batch-preview", { folderPath }),
   summaryEnqueue: (collectionTitle, items, focus = "") =>
     ipcRenderer.invoke("summary:enqueue", { collectionTitle, items, focus }),
   summaryRetry: (taskId, itemIndexes) =>

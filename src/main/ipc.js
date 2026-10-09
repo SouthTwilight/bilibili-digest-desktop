@@ -7,7 +7,7 @@ import { analyzeTranscript } from "./core/ai.js";
 import { sanitizeFocus } from "./core/summarize-doc.js";
 import { translateTranscriptBatch } from "./core/translation.js";
 import { explainSelection, cleanupNoteText } from "./core/explain.js";
-import { scanLibrary, readLibraryFile, scanCollectionForSummary } from "./core/library.js";
+import { scanLibrary, readLibraryFile, scanFolderForSummary } from "./core/library.js";
 import { exportFileName } from "./core/export-render.js";
 import { packSummaries } from "./core/summary-pack.js";
 
@@ -408,10 +408,11 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
       .slice(0, 60);
   }
 
-  // Enumerate a collection's video folders from disk (fast, no network) for
-  // the batch-summarize picker: newest export per video + summary existence.
-  ipcMain.handle("summary:batch-preview", (_event, { collectionPath }) =>
-    scanCollectionForSummary(settingsStore.load().saveDir, collectionPath),
+  // Enumerate a library folder from disk (fast, no network) for the
+  // batch-summarize picker: works for collection folders (video subfolders)
+  // and standalone multi-P video folders (per-P export files) alike.
+  ipcMain.handle("summary:batch-preview", (_event, { folderPath }) =>
+    scanFolderForSummary(settingsStore.load().saveDir, folderPath),
   );
 
   // Enqueue AI summaries (single file or collection batch). Instant — the
