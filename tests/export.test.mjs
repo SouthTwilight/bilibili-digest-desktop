@@ -119,6 +119,34 @@ test("library scan maps collections, videos and files", () => {
   rmSync(base, { recursive: true, force: true });
 });
 
+test("library scan orders P folders and _Pn files numerically", () => {
+  const base = new URL("./tmp-lib/", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
+  rmSync(base, { recursive: true, force: true });
+  // 多P视频文件夹：P1..P12 子文件夹（readdirSync 的字母序是 P1,P10,P11,…,P2）。
+  const video = join(base, "教程_BV1111111111");
+  for (let n = 1; n <= 12; n += 1) {
+    mkdirSync(join(video, `P${n}`), { recursive: true });
+    writeFileSync(join(video, `P${n}`, `教程_P${n}_2026-01-01_10-00.md`), "# x");
+  }
+  const tree = scanLibrary(base);
+  const parts = tree[0].children.map((c) => c.name);
+  assert.deepEqual(
+    parts,
+    ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11", "P12"],
+  );
+  // 文件名里的 _Pn 同样按数值排序。
+  mkdirSync(join(base, "合集B", "多P_BV2222222222"), { recursive: true });
+  for (const n of [10, 2, 1]) {
+    writeFileSync(join(base, "合集B", "多P_BV2222222222", `多P_P${n}_2026-01-01_10-00.md`), "# x");
+  }
+  const files = scanLibrary(base).find((n) => n.name === "合集B").children[0].children.map((f) => f.name);
+  assert.deepEqual(
+    files.map((f) => f.match(/_P(\d+)_/)[1]),
+    ["1", "2", "10"],
+  );
+  rmSync(base, { recursive: true, force: true });
+});
+
 test("expandIntoPageItems 把整视频项拆成每P一项并替换原项", () => {
   const item = {
     bvid: "BV1111111111",

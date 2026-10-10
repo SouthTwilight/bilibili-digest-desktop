@@ -7,6 +7,10 @@ import { join, extname, basename } from "node:path";
 function scanLibrary(saveDir) {
   if (!saveDir || !existsSync(saveDir)) return [];
 
+  // Numeric-aware order: P1, P2, … P10 instead of the filesystem's
+  // alphabetical P1, P10, P2 — applies to P folders and 视频名_Pn files.
+  const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
+
   function fileEntry(file, parent) {
     const path = join(parent, file);
     const ext = extname(file).toLowerCase();
@@ -55,6 +59,7 @@ function scanLibrary(saveDir) {
       }
     }
     if (!files.length) return null;
+    files.sort(byName);
     return { name, path: dir, type: "video", children: files };
   }
 
@@ -73,7 +78,7 @@ function scanLibrary(saveDir) {
       const directFiles = sub.filter((e) => e.isFile()).map((e) => fileEntry(e.name, dir));
       // Standalone video folder: files directly inside.
       if (directFiles.length && !videoDirs.some((d) => existsSync(join(dir, d.name)))) {
-        const video = { name: entry.name, path: dir, type: "video", children: directFiles };
+        const video = { name: entry.name, path: dir, type: "video", children: directFiles.sort(byName) };
         tree.push(video);
         continue;
       }
@@ -82,11 +87,12 @@ function scanLibrary(saveDir) {
           .map((d) => videoFolder(d.name, dir))
           .filter(Boolean);
         if (children.length || directFiles.length) {
-          tree.push({ name: entry.name, path: dir, type: "collection", children: [...children, ...directFiles] });
+          const merged = [...children, ...directFiles].sort(byName);
+          tree.push({ name: entry.name, path: dir, type: "collection", children: merged });
         }
       }
     }
-    return tree;
+    return tree.sort(byName);
   } catch {
     return [];
   }
