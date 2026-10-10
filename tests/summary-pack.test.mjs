@@ -139,3 +139,40 @@ test("packSummaries 无任何总结文件时报错", () => {
   assert.match(result.error, /还没有生成 AI 总结/);
   rmSync(base, { recursive: true, force: true });
 });
+
+test("packSummaries 条目路径按 UTF-8 字节截短并保留 BV/_Pn 后缀（Explorer 256 字节限制）", () => {
+  rmSync(base, { recursive: true, force: true });
+  const long = "【全100集】已付费，允许白嫖！目前B站最全最细的WorkBuddy保姆级教程，2026最新《WorkBuddy》完整版";
+  const videoDir = join(base, `${long}_BV1SRad6REzX`);
+  mkdirSync(join(videoDir, "P1"), { recursive: true });
+  writeFileSync(join(videoDir, "P1", `AI总结_${long}_P1.md`), "# P1");
+  const result = packSummaries({ saveDir: base, collectionTitle: long, videoDirs: [videoDir] });
+  assert.equal(result.success, true);
+  assert.equal(result.files, 1);
+  const zip = new AdmZip(readFileSync(result.file));
+  const entry = zip.getEntries().find((e) => e.entryName.endsWith(".md"));
+  assert.ok(entry, "总结条目存在");
+  assert.ok(Buffer.byteLength(entry.entryName, "utf8") <= 240, `bytes=${Buffer.byteLength(entry.entryName, "utf8")}`);
+  assert.match(entry.entryName, /\/P1\/AI总结_.*_P1\.md$/, entry.entryName);
+  assert.match(entry.entryName, /_BV1SRad6REzX\//, "BV 后缀保留");
+  assert.ok(result.file.split("\\").pop().length <= 60, result.file);
+  rmSync(base, { recursive: true, force: true });
+});
+
+test("packSummaries 打包多P视频的 P 子文件夹（视频级入口）", () => {
+  rmSync(base, { recursive: true, force: true });
+  const videoDir = join(base, "多P_BV8888888888");
+  mkdirSync(join(videoDir, "P1"), { recursive: true });
+  mkdirSync(join(videoDir, "P2"), { recursive: true });
+  writeFileSync(join(videoDir, "P1", "AI总结_多P_P1.md"), "# P1");
+  writeFileSync(join(videoDir, "P2", "AI总结_多P_P2.md"), "# P2");
+  const result = packSummaries({ saveDir: base, collectionTitle: "", videoDirs: [videoDir] });
+  assert.equal(result.success, true);
+  assert.equal(result.videos, 2);
+  assert.equal(result.files, 2);
+  const zip = new AdmZip(readFileSync(result.file));
+  const names = zip.getEntries().map((e) => e.entryName);
+  assert.ok(names.includes("多P_BV8888888888/P1/AI总结_多P_P1.md"), names.join(","));
+  assert.ok(names.includes("多P_BV8888888888/P2/AI总结_多P_P2.md"), names.join(","));
+  rmSync(base, { recursive: true, force: true });
+});
