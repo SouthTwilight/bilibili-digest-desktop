@@ -106,8 +106,8 @@ function reveal(file) {
       </div>
       <span class="task-progress-text">{{ task.done }}/{{ task.total }}</span>
     </div>
-    <div v-if="isCollapsed(task)" class="task-collapsed-line" :title="collapsedSummary(task)">{{ collapsedSummary(task) }}</div>
     <div v-if="usageText(task.usage)" class="task-usage-line">{{ usageText(task.usage) }}</div>
+    <div v-if="isCollapsed(task)" class="task-collapsed-line" :title="collapsedSummary(task)">{{ collapsedSummary(task) }}</div>
     <div v-else class="task-items">
       <div v-for="(result, i) in task.results" :key="i" class="task-item" :class="result.status">
         <span class="task-item-status">{{ result.status === "done" ? "✓" : result.status === "failed" ? "✗" : result.status === "running" ? "⏳" : "·" }}</span>

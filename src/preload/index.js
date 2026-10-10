@@ -1,5 +1,14 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+// Subscribe-and-return-unsubscribe: ipcRenderer.on() returns the emitter
+// itself, so returning it directly made every view's off() cleanup throw
+// (fn is not a function) and leak duplicate listeners across tab switches.
+function subscribe(channel, callback) {
+  const listener = (_event, payload) => callback(payload);
+  ipcRenderer.on(channel, listener);
+  return () => ipcRenderer.removeListener(channel, listener);
+}
+
 // The renderer talks to the main process exclusively through this bridge.
 contextBridge.exposeInMainWorld("desktop", {
   getSettings: () => ipcRenderer.invoke("settings:get"),
@@ -56,23 +65,14 @@ contextBridge.exposeInMainWorld("desktop", {
   setViewVisible: (visible) => ipcRenderer.invoke("view:set-visible", visible),
   resizeSidebar: (width) => ipcRenderer.invoke("layout:resize-sidebar", width),
 
-  onExportTaskUpdate: (callback) =>
-    ipcRenderer.on("export:task-update", (_event, task) => callback(task)),
-  onExportFinished: (callback) =>
-    ipcRenderer.on("export:finished", (_event, notice) => callback(notice)),
-  onNavigateTasks: (callback) =>
-    ipcRenderer.on("export:navigate-tasks", () => callback()),
-  onSummaryFinished: (callback) =>
-    ipcRenderer.on("summary:finished", (_event, notice) => callback(notice)),
-  onAnalysisFinished: (callback) =>
-    ipcRenderer.on("analysis:finished", (_event, notice) => callback(notice)),
+  onExportTaskUpdate: (callback) => subscribe("export:task-update", callback),
+  onExportFinished: (callback) => subscribe("export:finished", callback),
+  onNavigateTasks: (callback) => subscribe("export:navigate-tasks", callback),
+  onSummaryFinished: (callback) => subscribe("summary:finished", callback),
+  onAnalysisFinished: (callback) => subscribe("analysis:finished", callback),
 
-  onLayout: (callback) =>
-    ipcRenderer.on("layout:update", (_event, layout) => callback(layout)),
-  onVideoChanged: (callback) =>
-    ipcRenderer.on("video:changed", (_event, video) => callback(video)),
-  onDigestProgress: (callback) =>
-    ipcRenderer.on("digest:progress", (_event, progress) => callback(progress)),
-  onNavState: (callback) =>
-    ipcRenderer.on("nav:state", (_event, state) => callback(state)),
+  onLayout: (callback) => subscribe("layout:update", callback),
+  onVideoChanged: (callback) => subscribe("video:changed", callback),
+  onDigestProgress: (callback) => subscribe("digest:progress", callback),
+  onNavState: (callback) => subscribe("nav:state", callback),
 });
