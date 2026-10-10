@@ -10,6 +10,7 @@ import { explainSelection, cleanupNoteText } from "./core/explain.js";
 import { scanLibrary, readLibraryFile, scanFolderForSummary, scanLibraryForSummary } from "./core/library.js";
 import { exportFileName } from "./core/export-render.js";
 import { packSummaries } from "./core/summary-pack.js";
+import { fitUnder } from "./core/paths.js";
 
 function pushProgress(payload) {
   BrowserWindow.getAllWindows()[0]?.webContents.send("digest:progress", payload);
@@ -310,7 +311,7 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
         if (note.picture) lines.push(`  ![](${note.picture})`);
       }
       lines.push("", "---", "由 Bilibili Digest 桌面版整理");
-      const file = join(dir, `笔记_${exportFileName(video?.videoTitle || "")}.md`);
+      const file = fitUnder(dir, `笔记_${exportFileName(video?.videoTitle || "")}.md`);
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, lines.join("\n"), "utf8");
       return { success: true, file };

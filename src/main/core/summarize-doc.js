@@ -7,9 +7,10 @@
 // seam), hard-splitting any oversized section by lines.
 
 import { readFileSync, writeFileSync } from "node:fs";
-import { join, dirname, basename, extname } from "node:path";
+import { dirname, basename, extname } from "node:path";
 import { requestAiCompletion, loadPromptSection } from "./ai.js";
 import { sanitizeName } from "./export-render.js";
+import { fitUnder } from "./paths.js";
 
 export function splitDocIntoChunks(content, maxChars = 100_000) {
   const text = String(content || "");
@@ -170,7 +171,7 @@ export async function summarizeExportedDoc({
   // Titles ride straight into the output filename; Windows-illegal
   // characters in them (e.g. "AI游戏开发速成课|AI生成...") used to make
   // writeFileSync fail with ENOENT. The prompt keeps the raw title.
-  const outFile = join(dirname(filePath), `AI总结_${sanitizeName(videoName) || "未命名"}.md`);
+  const outFile = fitUnder(dirname(filePath), `AI总结_${sanitizeName(videoName) || "未命名"}.md`);
   writeFileSync(outFile, text.trim() + "\n", "utf8");
   return { success: true, file: outFile, videoName };
 }
@@ -243,7 +244,7 @@ export async function summarizeDocsBatch({
   for (const entry of entries) {
     const body = (buckets.get(entry.videoName) || []).join("\n").trim();
     if (body) {
-      const file = join(dirname(entry.filePath), `AI总结_${sanitizeName(entry.videoName) || "未命名"}.md`);
+      const file = fitUnder(dirname(entry.filePath), `AI总结_${sanitizeName(entry.videoName) || "未命名"}.md`);
       writeFileSync(file, body + "\n", "utf8");
       results.push({ filePath: entry.filePath, videoName: entry.videoName, file });
     } else {

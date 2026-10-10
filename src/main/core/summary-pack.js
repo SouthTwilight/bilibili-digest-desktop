@@ -2,6 +2,7 @@ import AdmZip from "adm-zip";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { sanitizeName, exportFileTimestamp } from "./export-render.js";
+import { fitUnder } from "./paths.js";
 
 // Windows Explorer's built-in zip handler reads entry names into a fixed
 // 256-byte buffer and silently DROPS entries whose full path exceeds it
@@ -114,7 +115,7 @@ export function packSummaries({ saveDir, collectionTitle = "", videoDirs }) {
   // Keep the zip filename short too — Explorer's extract-all nests the
   // destination folder under the archive name.
   const label = (rootName || sanitizeName(basename(dirs[0])) || "视频").slice(0, 33);
-  const outFile = join(base, `AI总结打包_${label}_${exportFileTimestamp()}.zip`);
+  const outFile = fitUnder(base, `AI总结打包_${label}_${exportFileTimestamp()}.zip`);
   writeFileSync(outFile, zip.toBuffer());
   return { success: true, file: outFile, videos: videos.length, files: fileCount };
 }

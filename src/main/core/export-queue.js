@@ -4,7 +4,8 @@ import { mkdirSync, writeFileSync, statSync } from "node:fs";
 import { fetchTranscript } from "./transcript-service.js";
 import { fetchBilibiliView } from "./bilibili.js";
 import { buildMarkdownExport, buildHtmlExport, exportFileName } from "./export-render.js";
-import { resolveVideoDir } from "./notes.js";
+import { videoDirSegments } from "./notes.js";
+import { fitUnder } from "./paths.js";
 import { summarizeExportedDoc, summarizeDocsBatch as runSummarizeDocsBatch } from "./summarize-doc.js";
 
 // Task queue for exports and AI summaries. Three lanes with different
@@ -119,21 +120,25 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, su
   }
 
   // Unified three-level layout (shared with notes/pictures via
-  // resolveVideoDir): collection videos under {合集}/{视频名_BV}/, standalone
+  // videoDirSegments): collection videos under {合集}/{视频名_BV}/, standalone
   // multi-P videos under {视频名_BV}/P{n}/, standalone singles grouped by
-  // uploader under {UP主}/{视频名_BV}/.
+  // uploader under {UP主}/{视频名_BV}/. fitUnder keeps the FULL path inside
+  // Windows' 260-char budget, trimming only when over.
   function targetFile(task, item, format, page, view) {
     const title = view?.title || item.videoTitle || item.title;
-    const dir = resolveVideoDir({
-      base: settingsStore.load().saveDir || ".",
-      collectionTitle: task.collectionTitle || "",
-      channelName: view?.owner?.name || "",
-      videoTitle: title,
-      bvid: item.bvid,
-      pageCount: view?.pages?.length || 0,
-      page: page || item.page || 1,
-    });
-    return join(dir, `${exportFileName(title, page || item.page || 1)}.${format}`);
+    const fileName = `${exportFileName(title, page || item.page || 1)}.${format}`;
+    return fitUnder(
+      settingsStore.load().saveDir || ".",
+      ...videoDirSegments({
+        collectionTitle: task.collectionTitle || "",
+        channelName: view?.owner?.name || "",
+        videoTitle: title,
+        bvid: item.bvid,
+        pageCount: view?.pages?.length || 0,
+        page: page || item.page || 1,
+      }),
+      fileName,
+    );
   }
 
   async function runItem(task, item) {

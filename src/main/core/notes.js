@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { join, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
+import { fitUnder } from "./paths.js";
 
 // Keep CJK titles but drop characters that are illegal in Windows filenames.
 // Fullwidth lookalikes (：？"＼ etc.) are technically legal but normalized away
@@ -33,15 +34,19 @@ export function videoFolderName(videoTitle, bvid) {
 //   standalone single-P   → {UP主名}/{视频名_BV号}/
 // The BV suffix keeps same-titled videos (and same-named UPs' folders) from
 // colliding; the UP grouping merges all of one uploader's videos.
-export function resolveVideoDir({ base, collectionTitle, channelName, videoTitle, bvid, pageCount, page }) {
+export function videoDirSegments({ collectionTitle, channelName, videoTitle, bvid, pageCount, page }) {
   const videoDir = videoFolderName(videoTitle, bvid);
   if (collectionTitle) {
-    return join(base, sanitizeDirName(collectionTitle) || "合集", videoDir);
+    return [sanitizeDirName(collectionTitle) || "合集", videoDir];
   }
   if (Number(pageCount) > 1) {
-    return join(base, videoDir, `P${Math.max(1, Number(page) || 1)}`);
+    return [videoDir, `P${Math.max(1, Number(page) || 1)}`];
   }
-  return join(base, sanitizeDirName(channelName) || "其他UP主", videoDir);
+  return [sanitizeDirName(channelName) || "其他UP主", videoDir];
+}
+
+export function resolveVideoDir(context) {
+  return fitUnder(String(context.base || "."), ...videoDirSegments(context));
 }
 
 // Notes live in the user's save directory in the same three-level layout as
