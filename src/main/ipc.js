@@ -330,14 +330,25 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
   // Single-video export keeps collection context: a video that belongs to a
   // collection ALWAYS lands in {saveDir}/{合集名}/{视频名_BV号}/ — the same
   // layout the collection export writes — so the library never shows the
-  // same video in two places depending on which button exported it.
+  // same video in two places depending on which button exported it. One
+  // view fetch supplies both the display title and the collection routing.
   ipcMain.handle("export:single", async (_event, { bvid, page, format, sourceMode, track, allPages }) => {
-    const info = await getCollectionInfo(bvid).catch(() => null);
+    const view = await fetchBilibiliView(bvid).catch(() => null);
+    const title = view?.title || "";
+    const page_ = page || 1;
     return exportQueue.enqueue({
       type: "single",
-      collectionTitle: info?.inCollection ? info.collectionTitle : "",
+      collectionTitle: view?.ugc_season?.title || "",
       format: format === "html" ? "html" : "md",
-      items: [{ bvid, page: page || 1, sourceMode: sourceMode || "subtitle", track, allPages: !!allPages }],
+      items: [{
+        bvid,
+        title: page_ > 1 ? `${title} P${page_}` : title,
+        videoTitle: title,
+        page: page_,
+        sourceMode: sourceMode || "subtitle",
+        track,
+        allPages: !!allPages,
+      }],
     });
   });
 

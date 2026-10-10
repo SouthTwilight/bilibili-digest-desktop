@@ -17,7 +17,7 @@ test("running/canceled/空任务不产生完成通知", () => {
 test("单视频全部成功", () => {
   const n = buildFinishedNotice(singleTask);
   assert.equal(n.ok, true);
-  assert.equal(n.title, "字幕导出完成");
+  assert.equal(n.title, "字幕导出完成：A");
   assert.equal(n.file, "D:/x/A.md");
 });
 

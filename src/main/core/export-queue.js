@@ -38,13 +38,46 @@ export function buildFinishedNotice(task) {
           : "";
     return { kind: "summary", ok: failed === 0, title: `${scope}${suffix}`, file: succeeded[0]?.file || null };
   }
+  const singleLabel =
+    task.type === "summary"
+      ? null
+      : succeeded[0]?.title
+        ? `字幕导出完成：${succeeded[0].title}`
+        : "字幕导出完成";
   const title =
     failed > 0
       ? `导出完成：成功 ${succeeded.length}，失败 ${failed}`
       : task.type === "collection"
         ? `合集导出完成（${results.length} 个视频）`
-        : "字幕导出完成";
+        : singleLabel;
   return { kind: "export", ok: failed === 0, title, file: succeeded[0]?.file || null };
+}
+
+// Split a whole-video (multi-P) export item into ONE ITEM PER PART inside
+// the same task — per-P progress/files/failures then show on the tasks page
+// exactly like a collection's per-video items. Splices the original item
+// out of task.items and returns the new pending items (lane routing and
+// notification are the caller's job).
+export function expandIntoPageItems(task, item, pages) {
+  const index = task.items.indexOf(item);
+  if (index === -1) return [];
+  const videoTitle = item.videoTitle || item.title || "";
+  const created = pages.map((pageEntry, i) => {
+    const page = pageEntry.page || i + 1;
+    return {
+      ...item,
+      title: `${videoTitle} P${page}`.trim(),
+      videoTitle,
+      page,
+      allPages: false,
+      itemStatus: "pending",
+      file: null,
+      error: null,
+      detail: null,
+    };
+  });
+  task.items.splice(index, 1, ...created);
+  return created;
 }
 
 export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, summarizeDoc = summarizeExportedDoc, summarizeDocsBatch = runSummarizeDocsBatch }) {
@@ -110,12 +143,20 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, su
       const settings = settingsStore.load();
       // One view fetch serves both the metadata and the multi-P page list.
       const view = await fetchBilibiliView(item.bvid).catch(() => null);
-      // Collection exports cover every part of multi-P videos (one FILE per
-      // part) — decided here at run time instead of a slow pre-enqueue probe;
-      // single-video exports keep their explicit allPages choice.
-      const wantsAllPages =
-        item.allPages || (task.type === "collection" && (view?.pages?.length || 0) > 1);
-      const pages = wantsAllPages && view?.pages?.length ? view.pages : null;
+      // Whole-video exports (全部P / collection multi-P videos) split into
+      // ONE ITEM PER PART at run time — the page count is only known here,
+      // and per-P progress/files/failures then show on the tasks page
+      // exactly like a collection's per-video items.
+      if ((item.allPages || task.type === "collection") && (view?.pages?.length || 0) > 1) {
+        const created = expandIntoPageItems(task, item, view.pages);
+        notify(task);
+        for (const pageItem of created) {
+          (pageItem.useAsr ? asrLane : subtitleLane).push({ task, item: pageItem });
+        }
+        pumpSubtitleLane();
+        pumpAsrLane();
+        return;
+      }
 
       // Source resolution: ASR exports reuse the paid cache slot; subtitle
       // exports always fetch fresh (subtitles are cheap, uncached API calls
@@ -158,39 +199,6 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, su
         description: view?.desc || "",
       };
       const format = item.format || task.format || "md";
-
-      if (pages) {
-        // Multi-P videos export ONE FILE PER PART — each P is its own
-        // readable, independently summarizable document, exactly like the
-        // collection treats each video. (Merged _全部P_ docs used to produce
-        // unreadable monsters and un-summarizable contexts.)
-        let firstFile = null;
-        for (const [index, pageEntry] of pages.entries()) {
-          const page = pageEntry.page || index + 1;
-          const { transcript, cached } = await fetchForPage(page);
-          if (!transcript.success) {
-            throw new Error(`P${page}：${transcript.message || "获取字幕失败"}`);
-          }
-          cacheAsr(page, transcript);
-          const video = {
-            ...baseVideo,
-            page,
-            language: transcript.language,
-            transcript: transcript.transcript,
-            analysis: cached?.analysis || null,
-          };
-          const content =
-            format === "html" ? buildHtmlExport(video) : buildMarkdownExport(video);
-          const file = targetFile(task, { ...item, videoTitle: baseVideo.title }, format, page, view);
-          mkdirSync(join(file, ".."), { recursive: true });
-          writeFileSync(file, content, "utf8");
-          firstFile ||= file;
-        }
-        item.file = firstFile;
-        item.itemStatus = "done";
-        notify(task);
-        return;
-      }
 
       const page = item.page || 1;
       const { transcript, cached } = await fetchForPage(page);

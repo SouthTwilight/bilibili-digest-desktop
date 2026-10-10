@@ -26,7 +26,9 @@ function taskLabel(task) {
       ? `批量总结：${task.collectionTitle}`
       : `AI 总结：${task.results?.[0]?.title || ""}`;
   }
-  return task.type === "collection" ? `合集导出：${task.collectionTitle}` : "单视频导出";
+  if (task.type === "collection") return `合集导出：${task.collectionTitle}`;
+  const title = task.results?.[0]?.title || "";
+  return title ? `单视频导出：${title}` : "单视频导出";
 }
 
 // Collection tasks can carry hundreds of items — they render collapsed by

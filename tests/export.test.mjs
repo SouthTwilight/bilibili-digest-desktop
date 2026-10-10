@@ -7,7 +7,7 @@ import {
   sanitizeName,
 } from "../src/main/core/export-render.js";
 import { scanLibrary } from "../src/main/core/library.js";
-import { createExportQueue } from "../src/main/core/export-queue.js";
+import { createExportQueue, expandIntoPageItems } from "../src/main/core/export-queue.js";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
@@ -117,6 +117,34 @@ test("library scan maps collections, videos and files", () => {
   assert.equal(solo.name, "单视频_BV2222222222");
   assert.equal(solo.children[0].kind, "notes");
   rmSync(base, { recursive: true, force: true });
+});
+
+test("expandIntoPageItems 把整视频项拆成每P一项并替换原项", () => {
+  const item = {
+    bvid: "BV1111111111",
+    title: "多P视频",
+    videoTitle: "多P视频",
+    page: 1,
+    allPages: true,
+    useAsr: false,
+    itemStatus: "running",
+  };
+  const task = { items: [{ bvid: "BV0", itemStatus: "done" }, item] };
+  const created = expandIntoPageItems(task, item, [{ page: 1 }, { page: 3 }, {}]);
+  assert.equal(created.length, 3);
+  assert.equal(task.items.length, 4, "原项被替换为三个P项");
+  assert.ok(!task.items.some((i) => i.allPages), "分P项不再标记 allPages");
+  assert.deepEqual(
+    task.items.slice(1).map((i) => i.page),
+    [1, 3, 3], // 缺省页码按序号补齐
+  );
+  assert.deepEqual(
+    task.items.slice(1).map((i) => i.title),
+    ["多P视频 P1", "多P视频 P3", "多P视频 P3"],
+  );
+  assert.ok(task.items.slice(1).every((i) => i.itemStatus === "pending"));
+  // 项不在任务里时不产生任何东西（防御）。
+  assert.deepEqual(expandIntoPageItems(task, { }, []), []);
 });
 
 test("export queue serializes ASR items and isolates failures", async () => {
