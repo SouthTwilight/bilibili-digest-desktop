@@ -250,3 +250,64 @@ function scanLibraryForSummary(saveDir) {
 }
 
 export { scanLibrary, readLibraryFile, scanFolderForSummary, scanLibraryForSummary };
+
+// ---- collection incremental update ---------------------------------------
+// "Already exported" is decided by folder names: every video folder is
+// 视频名_BV号 (videoFolderName), and BV ids survive sanitize untouched.
+
+const BV_SUFFIX_RE = /(BV[A-Za-z0-9]+)$/;
+
+export function exportedBvids(saveDir, collectionTitle) {
+  const set = new Set();
+  try {
+    const dir = join(String(saveDir || "."), String(collectionTitle || ""));
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const bv = entry.name.match(BV_SUFFIX_RE)?.[1];
+      if (bv) set.add(bv);
+    }
+  } catch {}
+  return set;
+}
+
+// Annotate collection videos with exported/newPages. One whole-library walk
+// builds BV → local-P-set (a `_全部P` file means fully covered); it covers
+// both "in this collection" and the renamed-collection fallback for free.
+// `collectionTitle` stays in the signature for call-site clarity; the walk
+// is deliberately collection-agnostic.
+export function markExported(saveDir, collectionTitle, videos) {
+  const base = String(saveDir || ".");
+  const list = Array.isArray(videos) ? videos : [];
+  const localPagesByBv = new Map();
+  try {
+    for (const dir of readdirSync(base, { withFileTypes: true })) {
+      if (!dir.isDirectory() || dir.name.startsWith(".")) continue;
+      const collectionDir = join(base, dir.name);
+      for (const sub of readdirSync(collectionDir, { withFileTypes: true })) {
+        if (!sub.isDirectory()) continue;
+        const bv = sub.name.match(BV_SUFFIX_RE)?.[1];
+        if (!bv || localPagesByBv.has(bv)) continue;
+        const pages = new Set([1]); // a plain export file counts as P1
+        let fullCover = false;
+        for (const file of readdirSync(join(collectionDir, sub.name))) {
+          if (file.includes("_全部P")) fullCover = true;
+          const m = file.match(/_P(\d+)/);
+          if (m) pages.add(Number(m[1]));
+        }
+        localPagesByBv.set(bv, fullCover ? "all" : pages);
+      }
+    }
+  } catch {}
+  return list.map((video) => {
+    const local = localPagesByBv.get(video.bvid);
+    const exported = !!local;
+    let newPages = [];
+    // Remote P data missing (pageCount undefined) → skip P diff silently.
+    if (exported && video.pageCount > 1 && local !== "all") {
+      for (let p = 1; p <= video.pageCount; p += 1) {
+        if (!local.has(p)) newPages.push(p);
+      }
+    }
+    return { ...video, exported, newPages };
+  });
+}
