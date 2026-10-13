@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld("desktop", {
   summaryPack: (collectionTitle, videoDirs) =>
     ipcRenderer.invoke("summary:pack", { collectionTitle, videoDirs }),
   revealInFolder: (filePath) => ipcRenderer.invoke("shell:reveal", filePath),
+  openDir: (dirPath) => ipcRenderer.invoke("library:open-dir", { dirPath }),
   navGo: (direction) => ipcRenderer.invoke("nav:go", direction),
   navReload: () => ipcRenderer.invoke("nav:reload"),
   navHome: () => ipcRenderer.invoke("nav:home"),

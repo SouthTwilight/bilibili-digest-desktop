@@ -98,6 +98,19 @@ function openWithDefaultApp(path) {
   window.desktop.openWithDefaultApp(path);
 }
 
+// Folder-level entries: open the collection/video folder itself in the file
+// manager (reveal() locates a single file inside its parent instead).
+function openDir(path) {
+  window.desktop.openDir(path);
+}
+
+async function openSaveDir() {
+  try {
+    const settings = await window.desktop.getSettings();
+    if (settings.saveDir) openDir(settings.saveDir);
+  } catch {}
+}
+
 // ---- single-file AI summary (queued like every summary task) --------------
 
 const summarizing = ref(false);
@@ -369,6 +382,7 @@ function prettyNotes(content) {
     <div class="library-tree" :class="{ compact: !!preview }">
       <div class="library-toolbar">
         <span class="section-title" style="margin: 0">导出库</span>
+        <button class="btn ghost small" title="在系统文件管理器中打开保存目录" @click="openSaveDir">打开目录</button>
         <button class="btn ghost small" title="扫描整个保存目录，批量总结所有还没有 AI 总结的文档" @click="openSummarizeAll">AI总结全部</button>
         <button class="btn ghost small" @click="refresh">刷新</button>
       </div>
@@ -391,6 +405,7 @@ function prettyNotes(content) {
               <button class="lib-action-btn" title="对比B站最新列表，增量导出新视频/新分P" @click.stop="checkCollectionUpdate(node)">检查更新</button>
               <button class="lib-action-btn" title="对整个合集生成 AI 总结（入任务队列）" @click.stop="openBatchSummarize(node)">AI总结</button>
               <button class="lib-action-btn" title="把合集内的 AI 总结打包为 zip 迁移" @click.stop="openPackDialog(node)">打包</button>
+              <button class="lib-action-btn" title="在文件管理器中打开该合集文件夹" @click.stop="openDir(node.path)">打开</button>
             </span>
           </div>
           <template v-if="node.type === 'collection' && node.open">
@@ -400,6 +415,7 @@ function prettyNotes(content) {
                 <span class="lib-name">🎬 {{ child.name }}</span>
                 <span class="lib-actions">
                   <button class="lib-action-btn" title="把这个视频的 AI 总结打包为 zip" @click.stop="packVideo(child)">打包</button>
+                  <button class="lib-action-btn" title="在文件管理器中打开该视频文件夹" @click.stop="openDir(child.path)">打开</button>
                 </span>
               </div>
               <template v-if="child.type === 'video' && child.open">
@@ -432,6 +448,7 @@ function prettyNotes(content) {
               <span class="lib-actions">
                 <button class="lib-action-btn" title="对该视频的所有分P/导出文档批量生成 AI 总结" @click.stop="openBatchSummarize(node)">AI总结</button>
                 <button class="lib-action-btn" title="把这个视频的 AI 总结打包为 zip" @click.stop="packVideo(node)">打包</button>
+                <button class="lib-action-btn" title="在文件管理器中打开该视频文件夹" @click.stop="openDir(node.path)">打开</button>
               </span>
             </div>
             <template v-if="node.open">

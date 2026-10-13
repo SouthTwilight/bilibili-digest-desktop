@@ -1,5 +1,5 @@
 import { ipcMain, dialog, shell, BrowserWindow } from "electron";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, statSync } from "node:fs";
 import { join, dirname, basename, extname } from "node:path";
 import { fetchTranscript } from "./core/transcript-service.js";
 import { getVideoDetails, getCollectionInfo, collectionVideosFromView, fetchBilibiliView } from "./core/bilibili.js";
@@ -421,6 +421,23 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
   // Open a library file with the OS default application (Typora for .md etc).
   ipcMain.handle("library:open", async (_event, { filePath }) => {
     const result = await shell.openPath(filePath);
+    return result ? { success: false, error: result } : { success: true };
+  });
+
+  // Open a library FOLDER in the system file manager (vs. library:reveal,
+  // which locates a single file inside its parent). Path must stay inside
+  // the save dir — the renderer tree only ever produces such paths, but a
+  // stale tree after a save-dir change could point elsewhere.
+  ipcMain.handle("library:open-dir", async (_event, { dirPath }) => {
+    const base = settingsStore.load().saveDir;
+    const target = String(dirPath || "");
+    if (!base || !target.startsWith(String(base))) {
+      return { success: false, error: "目录不在当前保存目录内。" };
+    }
+    if (!statSync(target)?.isDirectory()) {
+      return { success: false, error: "目录不存在。" };
+    }
+    const result = await shell.openPath(target);
     return result ? { success: false, error: result } : { success: true };
   });
 
