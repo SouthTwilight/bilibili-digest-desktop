@@ -27,9 +27,20 @@ async function refresh() {
 }
 
 const off = [];
-// Badge data pulled once on mount: dir name → { newCount, newPCount }.
+// Badge data: dir name → { newCount, newPCount }. Pulled on mount and again
+// whenever an export task settles — a finished incremental export changes the
+// counts, and a badge that survives its own update reads as a false alarm.
 // Failures stay silent — the badge is a convenience, manual「检查更新」works regardless.
 const updateBadges = ref(new Map());
+
+async function reloadBadges() {
+  try {
+    const result = await window.desktop.collectionCheckUpdates();
+    if (result.success) {
+      updateBadges.value = new Map((result.updates || []).map((u) => [u.dir, u]));
+    }
+  } catch {}
+}
 
 function updateBadgeText(dirName) {
   const badge = updateBadges.value.get(dirName);
@@ -39,20 +50,21 @@ function updateBadgeText(dirName) {
   if (badge.newPCount) parts.push(`${badge.newPCount} 个有新P`);
   return parts.join(" / ");
 }
-onMounted(async () => {
+onMounted(() => {
   refresh();
-  try {
-    const result = await window.desktop.collectionCheckUpdates();
-    if (result.success && result.updates?.length) {
-      updateBadges.value = new Map(result.updates.map((u) => [u.dir, u]));
-    }
-  } catch {}
+  reloadBadges();
   // New AI总结 files should appear in the tree the moment a summary task
-  // settles — without this the user has to hit 刷新 manually.
+  // settles; settled export tasks also refresh the tree AND the update
+  // badges — without this the user has to hit 刷新 manually.
   off.push(
     window.desktop.onExportTaskUpdate((task) => {
-      if (task.type === "summary" && (task.status === "done" || task.status === "canceled")) {
+      const settled = task.status === "done" || task.status === "canceled";
+      if (!settled) return;
+      if (task.type === "summary") {
         refresh();
+      } else {
+        refresh();
+        reloadBadges();
       }
     }),
   );
