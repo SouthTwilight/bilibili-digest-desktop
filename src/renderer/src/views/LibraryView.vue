@@ -1,10 +1,24 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { showAppNotice } from "../store.js";
+import CollectionExportDialog from "./CollectionExportDialog.vue";
 
 const tree = ref([]);
 const preview = ref(null); // { kind, name, content }
 const loading = ref(true);
+const collectionDialog = ref(null);
+
+// Any exported video's BV resolves its season — the library side needs no
+// separate collection registry to offer an update check.
+function checkCollectionUpdate(node) {
+  const firstVideo = (node.children || []).find((c) => c.type === "video");
+  const bvid = firstVideo?.name?.match(/(BV[A-Za-z0-9]+)$/)?.[1];
+  if (!bvid) {
+    showAppNotice({ ok: false, title: "该合集下没有视频目录，无法定位合集。" });
+    return;
+  }
+  collectionDialog.value?.open(bvid);
+}
 
 async function refresh() {
   loading.value = true;
@@ -338,6 +352,7 @@ function prettyNotes(content) {
             <span class="lib-caret">{{ node.open ? "▾" : "▸" }}</span>
             <span class="lib-name">📂 {{ node.name }}</span>
             <span class="lib-actions">
+              <button class="lib-action-btn" title="对比B站最新列表，增量导出新视频/新分P" @click.stop="checkCollectionUpdate(node)">检查更新</button>
               <button class="lib-action-btn" title="对整个合集生成 AI 总结（入任务队列）" @click.stop="openBatchSummarize(node)">AI总结</button>
               <button class="lib-action-btn" title="把合集内的 AI 总结打包为 zip 迁移" @click.stop="openPackDialog(node)">打包</button>
             </span>
@@ -512,6 +527,8 @@ function prettyNotes(content) {
         </div>
       </div>
     </div>
+
+    <CollectionExportDialog ref="collectionDialog" export-format="md" />
   </div>
 </template>
 
