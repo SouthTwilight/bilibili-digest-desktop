@@ -171,6 +171,9 @@ test("expandIntoPageItems 把整视频项拆成每P一项并替换原项", () =>
     ["多P视频 P1", "多P视频 P3", "多P视频 P3"],
   );
   assert.ok(task.items.slice(1).every((i) => i.itemStatus === "pending"));
+  // 分P项带 partItem 标记——队列的展开条件据此跳过，防止二次展开递归爆炸
+  // （合集任务里每个分P项又被拆成全部P，任务项数组合式增长）。
+  assert.ok(task.items.slice(1).every((i) => i.partItem === true), "分P项必须带 partItem 防重入标记");
   // 项不在任务里时不产生任何东西（防御）。
   assert.deepEqual(expandIntoPageItems(task, { }, []), []);
 });

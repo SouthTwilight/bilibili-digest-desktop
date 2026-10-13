@@ -275,6 +275,12 @@ export function exportedBvids(saveDir, collectionTitle) {
 // both "in this collection" and the renamed-collection fallback for free.
 // `collectionTitle` stays in the signature for call-site clarity; the walk
 // is deliberately collection-agnostic.
+// Above this many missing parts an "incremental" update is really a
+// bulk re-export in disguise (hundred-part videos whose P1 was exported
+// long ago) — bail out and leave the video to manual whole-video re-export
+// instead of queueing hundreds of single-P items.
+const MAX_NEW_PAGES = 50;
+
 export function markExported(saveDir, collectionTitle, videos) {
   const base = String(saveDir || ".");
   const list = Array.isArray(videos) ? videos : [];
@@ -307,6 +313,7 @@ export function markExported(saveDir, collectionTitle, videos) {
       for (let p = 1; p <= video.pageCount; p += 1) {
         if (!local.has(p)) newPages.push(p);
       }
+      if (newPages.length > MAX_NEW_PAGES) newPages = [];
     }
     return { ...video, exported, newPages };
   });

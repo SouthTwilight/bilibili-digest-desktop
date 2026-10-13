@@ -65,12 +65,15 @@ function batchSetSource(source) {
   });
 }
 
-function buildItem(video, page) {
+function buildItem(video, page, partItem = false) {
   return {
     bvid: video.bvid,
     title: video.title,
     videoTitle: video.title,
     page,
+    // partItem = page-level intent: the queue must not re-split this item
+    // into all parts (see expandIntoPageItems).
+    partItem,
     sourceMode: video.source || "subtitle",
     useAsr: (video.source || "subtitle") === "asr",
     format: props.exportFormat,
@@ -85,7 +88,7 @@ async function confirmCollectionExport() {
     const newPages = video.exported && video.newPages?.length ? video.newPages : null;
     if (newPages) {
       // Incremental: one single-P item per new part — old parts untouched.
-      for (const page of newPages) items.push(buildItem(video, page));
+      for (const page of newPages) items.push(buildItem(video, page, true));
     } else {
       items.push(buildItem(video, video.page || 1));
     }

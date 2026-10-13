@@ -71,6 +71,10 @@ export function expandIntoPageItems(task, item, pages) {
       videoTitle,
       page,
       allPages: false,
+      // Page-level item: must never be split again — the split condition
+      // below checks this flag, otherwise each part re-expands into all
+      // parts again and the task explodes combinatorially.
+      partItem: true,
       itemStatus: "pending",
       file: null,
       error: null,
@@ -151,8 +155,10 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, su
       // Whole-video exports (全部P / collection multi-P videos) split into
       // ONE ITEM PER PART at run time — the page count is only known here,
       // and per-P progress/files/failures then show on the tasks page
-      // exactly like a collection's per-video items.
-      if ((item.allPages || task.type === "collection") && (view?.pages?.length || 0) > 1) {
+      // exactly like a collection's per-video items. partItem marks items
+      // that are already page-level (split products, incremental single-P
+      // exports) and must not be split again.
+      if ((item.allPages || task.type === "collection") && !item.partItem && (view?.pages?.length || 0) > 1) {
         const created = expandIntoPageItems(task, item, view.pages);
         notify(task);
         for (const pageItem of created) {

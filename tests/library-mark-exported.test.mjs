@@ -63,3 +63,17 @@ test("a 全部P file marks the video fully covered for P diff", () => {
   assert.deepEqual(marked.newPages, []);
   rmSync(root, { recursive: true, force: true });
 });
+
+test("markExported caps runaway new-P lists (hundred-part videos)", () => {
+  const root = join("tests", "tmp-lib-mark4");
+  rmSync(root, { recursive: true, force: true });
+  mkdirSync(join(root, "合集", "大分P视频_BV1huge"), { recursive: true });
+  writeFileSync(join(root, "合集", "大分P视频_BV1huge", "大分P视频_2026-09-01_10-00.md"), "# t"); // 只有P1
+  const [marked] = markExported(root, "合集", [{ bvid: "BV1huge", title: "大分P视频", pageCount: 300 }]);
+  assert.equal(marked.exported, true);
+  assert.deepEqual(marked.newPages, []); // 299 个缺失P超过上限——放弃增量，留给手动整视频重导
+  // 上限以内的正常增量不受影响
+  const [ok] = markExported(root, "合集", [{ bvid: "BV1huge", title: "大分P视频", pageCount: 4 }]);
+  assert.deepEqual(ok.newPages, [2, 3, 4]);
+  rmSync(root, { recursive: true, force: true });
+});
