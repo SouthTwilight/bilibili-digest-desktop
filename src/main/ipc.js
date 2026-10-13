@@ -8,6 +8,7 @@ import { sanitizeFocus } from "./core/summarize-doc.js";
 import { translateTranscriptBatch } from "./core/translation.js";
 import { explainSelection, cleanupNoteText } from "./core/explain.js";
 import { scanLibrary, readLibraryFile, scanFolderForSummary, scanLibraryForSummary, markExported } from "./core/library.js";
+import { detectCollectionUpdates } from "./core/collection-update.js";
 import { exportFileName } from "./core/export-render.js";
 import { packSummaries } from "./core/summary-pack.js";
 import { fitUnder } from "./core/paths.js";
@@ -396,6 +397,17 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
 
   ipcMain.handle("export:tasks", () => exportQueue.list());
   ipcMain.handle("export:cancel", (_event, id) => exportQueue.cancel(id));
+
+  // Pulled by the library view on mount — the "startup check" is implemented
+  // renderer-side to avoid a main→renderer push channel.
+  ipcMain.handle("collection:check-updates", async () => {
+    try {
+      const updates = await detectCollectionUpdates(settingsStore.load().saveDir, fetchBilibiliView);
+      return { success: true, updates };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
 
   ipcMain.handle("library:list", () => scanLibrary(settingsStore.load().saveDir));
   ipcMain.handle("library:read", (_event, filePath) =>

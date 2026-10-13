@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld("desktop", {
     ipcRenderer.invoke("export:single", { bvid, page, format, sourceMode, track, allPages }),
   exportCollectionPreview: (videoId) =>
     ipcRenderer.invoke("export:collection-preview", videoId),
+  collectionCheckUpdates: () => ipcRenderer.invoke("collection:check-updates"),
   exportCollectionConfirm: (collectionTitle, format, items) =>
     ipcRenderer.invoke("export:collection-confirm", { collectionTitle, format, items }),
   exportTasks: () => ipcRenderer.invoke("export:tasks"),

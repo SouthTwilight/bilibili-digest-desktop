@@ -27,8 +27,26 @@ async function refresh() {
 }
 
 const off = [];
-onMounted(() => {
+// Badge data pulled once on mount: dir name → { newCount, newPCount }.
+// Failures stay silent — the badge is a convenience, manual「检查更新」works regardless.
+const updateBadges = ref(new Map());
+
+function updateBadgeText(dirName) {
+  const badge = updateBadges.value.get(dirName);
+  if (!badge) return "";
+  const parts = [];
+  if (badge.newCount) parts.push(`${badge.newCount} 个新视频`);
+  if (badge.newPCount) parts.push(`${badge.newPCount} 个有新P`);
+  return parts.join(" / ");
+}
+onMounted(async () => {
   refresh();
+  try {
+    const result = await window.desktop.collectionCheckUpdates();
+    if (result.success && result.updates?.length) {
+      updateBadges.value = new Map(result.updates.map((u) => [u.dir, u]));
+    }
+  } catch {}
   // New AI总结 files should appear in the tree the moment a summary task
   // settles — without this the user has to hit 刷新 manually.
   off.push(
@@ -351,6 +369,12 @@ function prettyNotes(content) {
           <div v-if="node.type === 'collection'" class="lib-row coll" @click="toggle(node)">
             <span class="lib-caret">{{ node.open ? "▾" : "▸" }}</span>
             <span class="lib-name">📂 {{ node.name }}</span>
+            <button
+              v-if="updateBadgeText(node.name)"
+              class="lib-update-badge"
+              title="有更新，点击增量导出"
+              @click.stop="checkCollectionUpdate(node)"
+            >{{ updateBadgeText(node.name) }}</button>
             <span class="lib-actions">
               <button class="lib-action-btn" title="对比B站最新列表，增量导出新视频/新分P" @click.stop="checkCollectionUpdate(node)">检查更新</button>
               <button class="lib-action-btn" title="对整个合集生成 AI 总结（入任务队列）" @click.stop="openBatchSummarize(node)">AI总结</button>
@@ -552,6 +576,18 @@ function prettyNotes(content) {
   font-size: 11px;
   line-height: 1;
   padding: 4px 7px;
+  cursor: pointer;
+}
+.lib-update-badge {
+  flex: none;
+  margin-left: 6px;
+  border: none;
+  background: rgba(251, 114, 153, 0.14);
+  color: #fb7299;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 18px;
+  padding: 0 8px;
   cursor: pointer;
 }
 .lib-action-btn:hover {
