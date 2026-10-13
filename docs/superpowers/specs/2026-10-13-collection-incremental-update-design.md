@@ -34,12 +34,15 @@
 
 ### 2. 比对原语与预览接口增强（`export:collection-preview`）
 
-- 新增 `markExported(saveDir, collectionTitle, videos) -> videos`（library.js）：先按本合集目录的 `exportedBvids` 比对；合集目录未命中的 BV 再对 saveDir 全库一级/二级目录兜底扫一遍（应对合集在 B 站改名的边缘情况，成本是一次目录遍历），为每个 video 标注 `exported: boolean`
+- 新增 `markExported(saveDir, collectionTitle, videos) -> videos`（library.js）：
+  - 先按本合集目录的 `exportedBvids` 比对；合集目录未命中的 BV 再对 saveDir 全库一级/二级目录兜底扫一遍（应对合集在 B 站改名的边缘情况，成本是一次目录遍历），为每个 video 标注 `exported: boolean`
+  - **分P检测**：对已导出视频，本地分P集合从其视频目录内文件名推断（`_Pn` 标记收集各P，存在 `_全部P` 文件视为全覆盖）；远端分P数取 episode 自带的 `pages` 字段（view API 的 ugc_season episode 原生携带，零额外请求）。差集标注为 `newPages: [n...]`；episode 缺 `pages` 字段时该视频静默跳过分P检测（不补调 API）
 - `export:collection-preview` handler 在返回前调用它——预览与启动检测（§5）共用同一判定，避免两处逻辑漂移
 
 ### 3. 入口一：现有导出弹窗增强（`TranscriptView.vue`）
 
-- 已导出视频：灰色「已导出」徽标 + 默认 `selected: false`
+- 已导出视频：灰色「已导出」徽标 + 默认 `selected: false`；**有新分P的**（`newPages` 非空）改显「有新P（+n）」徽标并默认勾选
+- 确认入队规则：有 `newPages` 的视频按新P生成 `page=n` 的单P items（只导新P不重拉旧P）；纯新增视频沿用合集导出（队列运行时按 pages 拆项）
 - 新视频：默认勾选
 - 顶部统计条：「合集共 N 个视频，M 个未导出」；M 为 0 时提示"已是最新"
 - 全选/反选/批量设置字幕来源能力保留——手动勾选已导出视频即重导，覆盖"内部新增分P想更新"的场景
@@ -56,14 +59,15 @@
   - 对库内每个一级目录：取任一子视频目录 BV → `fetchBilibiliView` → 有 `ugc_season` 的才是真合集（UP主分组跳过）
   - `collectionVideosFromView` 最新列表 经 `markExported`（§2 同一原语）标注 → 差集即新视频数
   - 结果经 `webContents.send("collection:update-available", { collectionDir, count })` 推给渲染端
-- LibraryView 收到事件在对应合集行显示「N 个新视频」角标；点击即触发入口二的检查更新流程
+- LibraryView 收到事件在对应合集行显示角标「N 个新视频」/「M 个视频有新P」（两者兼有时合并显示），点击即触发入口二的检查更新流程
 - 单合集 API 失败跳过不重试；检测在每次启动时执行一次
 
 ## 边界与已知限制（本期接受）
 
 | 情况 | 处理 |
 |---|---|
-| 已导出视频内部新增分P | 仍标"已导出"；用户手动勾选重导 |
+| episode 缺 `pages` 字段（API 行为变化） | 该视频分P检测静默跳过，合集新增检测不受影响 |
+| 想重刷旧分P（非新增） | 弹窗手动全选该视频重导，本期不做旧P级勾选 |
 | 合集在 B 站改标题 | BV 兜底比对使检测仍准确；但重导的文件按新标题落**新目录**，旧目录保留（targetFile 纯函数，本期不改） |
 | UP主分组目录 | 不检测、不显示角标（非合集） |
 | 库目录为空/无合集 | 启动检测直接空跑，无副作用 |
@@ -72,7 +76,7 @@
 ## 测试（`node --test tests/*.test.mjs`）
 
 - `exportedBvids`：正常提取、无 BV 目录忽略、空目录返回空集
-- preview 增强：mock 集合判定（或抽纯函数 `markExported(videos, exportedSet)`）验证标记逻辑，含全库兜底分支
+- `markExported`：exported 标记、全库兜底分支、分P差集（`_Pn` 收集、`_全部P` 全覆盖、episode 缺 pages 跳过）、`newPages` 计算
 - 现有 `export.test.mjs`/`library` 相关用例回归不破
 - 弹窗与角标为 UI 改动，按项目惯例手动冒烟（`npm run dev` 走两个入口各一次）
 
@@ -89,5 +93,5 @@
 
 - 不做定时轮询检测
 - 不做"关注/UP主更新"检测
-- 不做分P级 diff 与重导自动化
+- 不做旧分P的重导自动化（新增分P自动导，旧P想重刷走手动全选）
 - 不改动 targetFile 目录复用逻辑（合集改名场景的重导落新目录，接受）
