@@ -307,6 +307,9 @@ html {
 .collection-export-row-status { flex: 0 0 auto; font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--surface-soft); color: var(--muted); }
 .collection-export-row-status.ok { color: #3e9b4f; }
 .collection-export-row-status.warn { color: #c07a2a; }
+.coll-badge { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 11px; line-height: 18px; vertical-align: 1px; flex: 0 0 auto; }
+.coll-badge.exported { background: var(--surface-soft); color: var(--muted); }
+.coll-badge.newp { background: rgba(251, 114, 153, 0.14); color: #fb7299; }
 
 .library-layout { display: flex; flex-direction: column; gap: 12px; height: 100%; }
 /* The tree fills the whole panel while nothing is previewed; with a preview
