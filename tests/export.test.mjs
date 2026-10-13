@@ -6,7 +6,7 @@ import {
   exportFileName,
   sanitizeName,
 } from "../src/main/core/export-render.js";
-import { scanLibrary } from "../src/main/core/library.js";
+import { scanLibrary, markExported } from "../src/main/core/library.js";
 import { createExportQueue, expandIntoPageItems } from "../src/main/core/export-queue.js";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -235,4 +235,23 @@ test("retryAsr re-enqueues failed items as ASR inside the same task", async () =
   const settled = queue.list();
   assert.equal(settled[0].status, "done");
   assert.equal(settled[0].results[0].status, "failed");
+});
+
+test("markExported annotates preview-shaped videos for the collection dialog", () => {
+  // The preview handler maps collection videos to { ...video, page: 1 } after
+  // markExported; this pins the shape those annotated items must carry.
+  const base = new URL("./tmp-lib-mark-int/", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
+  rmSync(base, { recursive: true, force: true });
+  mkdirSync(join(base, "GitHub一周热点汇总", "老视频_BV1old"), { recursive: true });
+  writeFileSync(join(base, "GitHub一周热点汇总", "老视频_BV1old", "老视频_2026-09-01_10-00.md"), "# t");
+  const marked = markExported(base, "GitHub一周热点汇总", [
+    { bvid: "BV1old", title: "老视频", pageCount: 1 },
+    { bvid: "BV1fresh", title: "新视频", pageCount: 1 },
+  ]).map((video) => ({ ...video, page: 1 }));
+  assert.equal(marked[0].exported, true);
+  assert.deepEqual(marked[0].newPages, []);
+  assert.equal(marked[0].page, 1);
+  assert.equal(marked[1].exported, false);
+  assert.equal(marked[1].page, 1);
+  rmSync(base, { recursive: true, force: true });
 });

@@ -136,6 +136,9 @@ export function collectionVideosFromView(view) {
           0,
           Math.round(Number(episode?.arc?.duration ?? episode?.duration ?? 0)),
         ),
+        // Episodes carry their own page list — the incremental-update P diff
+        // uses it without extra API calls. Missing field degrades to 1.
+        pageCount: Math.max(1, episode.pages?.length || 0),
       });
     }
   }

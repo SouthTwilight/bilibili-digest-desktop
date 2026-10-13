@@ -7,7 +7,7 @@ import { analyzeTranscript } from "./core/ai.js";
 import { sanitizeFocus } from "./core/summarize-doc.js";
 import { translateTranscriptBatch } from "./core/translation.js";
 import { explainSelection, cleanupNoteText } from "./core/explain.js";
-import { scanLibrary, readLibraryFile, scanFolderForSummary, scanLibraryForSummary } from "./core/library.js";
+import { scanLibrary, readLibraryFile, scanFolderForSummary, scanLibraryForSummary, markExported } from "./core/library.js";
 import { exportFileName } from "./core/export-render.js";
 import { packSummaries } from "./core/summary-pack.js";
 import { fitUnder } from "./core/paths.js";
@@ -361,10 +361,13 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
     try {
       const collection = collectionVideosFromView(await fetchBilibiliView(videoId));
       if (!collection) return { success: false, error: "当前视频不在合集中。" };
+      // exported/newPages ride along so the dialog can default-select only
+      // what is actually new (videos or parts).
+      const videos = markExported(settingsStore.load().saveDir, collection.collectionTitle, collection.videos);
       return {
         success: true,
         collectionTitle: collection.collectionTitle,
-        videos: collection.videos.map((video) => ({ ...video, page: 1 })),
+        videos: videos.map((video) => ({ ...video, page: 1 })),
       };
     } catch (error) {
       return { success: false, error: error.message };
