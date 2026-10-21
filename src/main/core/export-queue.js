@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, statSync } from "node:fs";
-import { fetchTranscript } from "./transcript-service.js";
+import { fetchTranscript as fetchTranscriptImpl } from "./transcript-service.js";
 import { fetchBilibiliView } from "./bilibili.js";
 import { buildMarkdownExport, buildHtmlExport, exportFileName } from "./export-render.js";
 import { videoDirSegments } from "./notes.js";
@@ -45,6 +45,18 @@ export function buildFinishedNotice(task) {
       : succeeded[0]?.title
         ? `字幕导出完成：${succeeded[0].title}`
         : "字幕导出完成";
+  if (task.type === "transcribe") {
+    const item = results[0];
+    return {
+      kind: "transcribe",
+      ok: item?.status === "done",
+      title:
+        item?.status === "done"
+          ? `语音识别完成：${item.title}`
+          : `语音识别失败：${item?.title || ""}`,
+      file: null,
+    };
+  }
   const title =
     failed > 0
       ? `导出完成：成功 ${succeeded.length}，失败 ${failed}`
@@ -85,13 +97,27 @@ export function expandIntoPageItems(task, item, pages) {
   return created;
 }
 
-export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, summarizeDoc = summarizeExportedDoc, summarizeDocsBatch = runSummarizeDocsBatch }) {
+export function createExportQueue({
+  settingsStore,
+  digestCache,
+  onTaskUpdate,
+  summarizeDoc = summarizeExportedDoc,
+  summarizeDocsBatch = runSummarizeDocsBatch,
+  fetchTranscript = fetchTranscriptImpl,
+}) {
   const tasks = new Map();
   const subtitleLane = [];
   const asrLane = [];
   const summaryLane = [];
   let subtitleRunning = 0;
   let summaryRunning = 0;
+
+  // Lane routing must agree with runItem's effective-source resolution: a
+  // single-video export reaches the queue as sourceMode "asr" (no useAsr
+  // flag — that spelling belongs to collection dialog items and retries), and
+  // routing those by useAsr alone put PAID ASR work onto the parallel
+  // subtitle lane, breaking the strictly-serial quota guarantee.
+  const itemWantsAsr = (item) => item.useAsr || item.sourceMode === "asr";
 
   function notify(task) {
     onTaskUpdate?.(serializeTask(task));
@@ -162,7 +188,7 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, su
         const created = expandIntoPageItems(task, item, view.pages);
         notify(task);
         for (const pageItem of created) {
-          (pageItem.useAsr ? asrLane : subtitleLane).push({ task, item: pageItem });
+          (itemWantsAsr(pageItem) ? asrLane : subtitleLane).push({ task, item: pageItem });
         }
         pumpSubtitleLane();
         pumpAsrLane();
@@ -285,6 +311,49 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, su
     }
   }
 
+  // Manual sidebar transcription ("语音识别字幕"): same visibility and lanes
+  // as exports, but no file output — the result lands in the paid ASR cache
+  // slot (mirroring transcript:get's persistAsr) and the sidebar reads it
+  // back from cache on completion. Progress rides item.detail into the task
+  // payload like summary chunk progress does.
+  async function runTranscribeItem(task, item) {
+    item.itemStatus = "running";
+    notify(task);
+    const page = item.page || 1;
+    try {
+      const transcript = await fetchTranscript({
+        settings: settingsStore.load(),
+        videoId: item.bvid,
+        page,
+        mode: "asr",
+        track: item.track || "ai",
+        onProgress: (title, subtitle) => {
+          item.detail = subtitle ? `${title}（${subtitle}）` : title;
+          notify(task);
+        },
+      });
+      if (!transcript.success) {
+        throw new Error(transcript.message || "语音识别失败");
+      }
+      const cacheKey = `${item.bvid}@p${page}`;
+      const existing = digestCache.load(cacheKey) || {};
+      digestCache.save(cacheKey, {
+        ...existing,
+        transcripts: { ...(existing.transcripts || {}), asr: transcript },
+        sourceOverride: "asr",
+        trackOverride: item.track || existing.trackOverride || null,
+      });
+      item.itemStatus = "done";
+    } catch (error) {
+      item.itemStatus = "failed";
+      item.error = error.message || String(error);
+    } finally {
+      item.detail = null;
+      notify(task);
+    }
+  }
+
+
   // Short docs of the SAME task are packed into one completion request —
   // the fixed prompt template is billed once per group instead of once per
   // video. Caps keep a group comfortably inside the model context and the
@@ -387,7 +456,8 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, su
     if (!next) return;
     asrBusy = true;
     const { task, item } = next;
-    const run = task.status === "canceled" ? Promise.resolve() : runItem(task, item);
+    const runner = task.type === "transcribe" ? runTranscribeItem : runItem;
+    const run = task.status === "canceled" ? Promise.resolve() : runner(task, item);
     run
       .catch(() => {})
       .finally(() => {
@@ -419,7 +489,7 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, su
       item.itemStatus = "pending";
       const payload = { task, item };
       if (task.type === "summary") summaryLane.push(payload);
-      else if (item.useAsr) asrLane.push(payload);
+      else if (task.type === "transcribe" || itemWantsAsr(item)) asrLane.push(payload);
       else subtitleLane.push(payload);
     }
     pumpSubtitleLane();
@@ -512,6 +582,28 @@ export function createExportQueue({ settingsStore, digestCache, onTaskUpdate, su
       return Array.from(tasks.values())
         .map(serializeTask)
         .sort((a, b) => b.createdAt - a.createdAt);
+    },
+
+    // Manual sidebar transcription enters the SAME strictly-serial ASR lane
+    // as exports (Doubao concurrency quota), so a recognition started while
+    // a collection ASR export runs waits its turn instead of racing it.
+    // Idempotent while live: re-clicking the button (or returning to the
+    // video mid-task) attaches to the running task instead of billing the
+    // recognition twice.
+    enqueueTranscribe({ bvid, page = 1, track = null, title = "" }) {
+      const page_ = Math.max(1, Number(page) || 1);
+      for (const task of tasks.values()) {
+        if (task.type !== "transcribe" || task.status !== "running") continue;
+        const item = task.items[0];
+        if (item?.bvid === bvid && (item.page || 1) === page_) {
+          return { success: true, task: serializeTask(task) };
+        }
+      }
+      const task = enqueueTask({
+        type: "transcribe",
+        items: [{ bvid, title: title || bvid, page: page_, track }],
+      });
+      return { success: true, task: serializeTask(task) };
     },
 
     // Re-enqueue failed items with ASR inside the SAME task, so the original

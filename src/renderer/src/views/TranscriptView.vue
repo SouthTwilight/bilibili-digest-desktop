@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, computed, nextTick, onUnmounted } from "vue";
+import { ref, watch, computed, nextTick, onMounted, onUnmounted } from "vue";
 import { currentVideo, videoDetails, transcript, progress, showAppNotice } from "../store.js";
 import CollectionExportDialog from "./CollectionExportDialog.vue";
 
@@ -7,6 +7,90 @@ const loading = ref(false);
 const error = ref("");
 const switching = ref(false);
 const asrConfigured = ref(false);
+
+// --- queued transcription ("语音识别字幕") -------------------------------
+// ASR runs as a queue task (serial lane, visible on the tasks page), so the
+// panel tracks the task and reads the transcript back from the paid cache
+// when it finishes. Leaving the page/video does NOT cancel the task.
+const pendingTask = ref(null); // { id, bvid, page }
+const transcribeDetail = ref("");
+
+function applyTaskUpdate(task) {
+  if (!pendingTask.value || task?.id !== pendingTask.value.id) return;
+  if (currentVideo.value?.bvid !== pendingTask.value.bvid || currentVideo.value?.page !== pendingTask.value.page) {
+    return; // 用户已切走：任务继续跑，结果进缓存，回来时 auto 命中
+  }
+  if (task.status === "running") {
+    transcribeDetail.value = task.results?.[0]?.detail || transcribeDetail.value;
+    return;
+  }
+  const finished = pendingTask.value;
+  pendingTask.value = null;
+  transcribeDetail.value = "";
+  if (task.status === "done" && task.results?.[0]?.status === "done") {
+    void showTranscribed(finished);
+  } else if (task.status === "canceled") {
+    error.value = "语音识别已取消";
+    loading.value = false;
+    switching.value = false;
+  } else {
+    error.value = task.results?.[0]?.error || "语音识别失败";
+    loading.value = false;
+    switching.value = false;
+  }
+}
+
+async function showTranscribed({ bvid, page }) {
+  try {
+    const result = await window.desktop.getTranscript(bvid, page, "asr", lastLoadTrack);
+    if (!result.success) {
+      error.value = result.message || result.error || "获取识别结果失败";
+    } else {
+      transcript.value = result.transcript;
+      translations.value = result.translations || {};
+    }
+  } catch (e) {
+    error.value = e.message;
+  } finally {
+    loading.value = false;
+    switching.value = false;
+  }
+}
+
+async function startTranscribe() {
+  if (!currentVideo.value) return;
+  error.value = "";
+  transcript.value = null;
+  translations.value = {};
+  mode.value = "original";
+  loading.value = true;
+  progress.visible = false;
+  lastLoadMode = "asr";
+  pendingTask.value = null;
+  transcribeDetail.value = "";
+  try {
+    const result = await window.desktop.transcribeEnqueue({
+      bvid: currentVideo.value.bvid,
+      page: currentVideo.value.page,
+      track: lastLoadTrack,
+      title: videoDetails.value?.title || "",
+    });
+    if (!result.success) {
+      throw new Error(result.error || result.message || "语音识别入队失败");
+    }
+    pendingTask.value = {
+      id: result.task.id,
+      bvid: currentVideo.value.bvid,
+      page: currentVideo.value.page,
+    };
+    applyTaskUpdate(result.task); // 幂等附身到已完成的任务时立即收尾
+  } catch (e) {
+    error.value = e.message;
+    loading.value = false;
+  } finally {
+    switching.value = false;
+  }
+}
 
 // --- export ----------------------------------------------------------------
 const exportFormat = ref("md");
@@ -164,6 +248,12 @@ let lastLoadTrack = "ai";
 
 async function load(loadMode = "auto", track = null) {
   if (!currentVideo.value) return;
+  // ASR 不再直连：入队为 transcribe 任务（串行道 + 任务页可见），由
+  // applyTaskUpdate 在任务完成后回填结果。
+  if (loadMode === "asr") {
+    if (track) lastLoadTrack = track;
+    return startTranscribe();
+  }
   const track_ = track || lastLoadTrack;
   error.value = "";
   transcript.value = null;
@@ -227,7 +317,17 @@ watch(
   () => explainState.value.visible,
   (open) => window.desktop.setViewVisible(!open),
 );
-onUnmounted(() => window.desktop.setViewVisible(true));
+
+// 队列任务进度（transcribe）从主进程推送；切 tab 卸载组件只解绑监听，
+// 任务本身在主进程继续跑。
+let offTaskUpdates = () => {};
+onMounted(() => {
+  offTaskUpdates = window.desktop.onExportTaskUpdate(applyTaskUpdate);
+});
+onUnmounted(() => {
+  offTaskUpdates();
+  window.desktop.setViewVisible(true);
+});
 
 async function explainSelectionText(selectedText) {
   explainState.value = { visible: true, loading: true, text: "", error: "" };
@@ -284,7 +384,11 @@ function seek(seconds) {
   <div v-if="!currentVideo" class="placeholder">在右侧打开一个 B 站视频后，这里会显示字幕。</div>
 
   <div v-else-if="loading" class="placeholder">
-    <template v-if="progress.visible">
+    <template v-if="pendingTask">
+      语音识别任务进行中{{ transcribeDetail ? `：${transcribeDetail}` : "…" }}<br />
+      进度见「任务」页，切换页面或视频不会打断
+    </template>
+    <template v-else-if="progress.visible">
       {{ progress.title }}<span v-if="progress.subtitle"> · {{ progress.subtitle }}</span>
     </template>
     <template v-else>正在获取字幕…</template>
@@ -293,11 +397,11 @@ function seek(seconds) {
   <div v-else-if="error" class="error-note">
     {{ error }}
     <button
-      v-if="asrConfigured && lastLoadMode !== 'asr'"
+      v-if="asrConfigured"
       class="btn"
       style="margin-top: 10px"
       @click="switching = true; load('asr')"
-    >语音识别字幕</button>
+    >{{ lastLoadMode === "asr" ? "重试语音识别" : "语音识别字幕" }}</button>
   </div>
 
   <div v-else-if="transcript" class="transcript" @mouseup="onTranscriptMouseup">

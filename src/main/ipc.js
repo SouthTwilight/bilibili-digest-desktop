@@ -84,12 +84,23 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
       return { success: true, fromCache: true, transcript: asrSlot, translations: asrTranslations };
     }
 
+    // A cache-miss ASR request must go through transcript:transcribe (the
+    // task queue) — running paid recognition inline here was invisible on
+    // the tasks page and bypassed the strictly-serial ASR lane.
+    if (wantAsr) {
+      return {
+        success: false,
+        error: "ASR_NOT_QUEUED",
+        message: "语音识别未完成：请从字幕页发起，任务会进入队列执行。",
+      };
+    }
+
     try {
       const settings = settingsStore.load();
 
       // auto/subtitle: fresh subtitle fetch, unless the user's standing
       // choice is ASR and a paid transcript exists.
-      if (!wantAsr && sourceOverride === "asr" && asrSlot) {
+      if (sourceOverride === "asr" && asrSlot) {
         persistOverride();
         return { success: true, fromCache: true, transcript: asrSlot, translations: asrTranslations };
       }
@@ -98,12 +109,12 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
         settings,
         videoId,
         page: page_,
-        mode: wantAsr ? "asr" : "subtitle",
+        mode: "subtitle",
         track: trackOverride || "ai",
         onProgress: onProgress("transcript"),
       });
       if (transcript.success) {
-        if (wantAsr || transcript.source !== "bilibili-subtitle") {
+        if (transcript.source !== "bilibili-subtitle") {
           persistAsr(transcript);
         } else {
           persistOverride();
@@ -113,7 +124,7 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
           transcript,
           // Subtitle content is not cached, so neither are its translations
           // (segment ids would not stay aligned across regenerations).
-          translations: wantAsr ? asrTranslations : {},
+          translations: {},
         };
       }
       return transcript;
@@ -125,6 +136,19 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
       pushProgress({ phase: "transcript", title: "", subtitle: "" });
     }
   });
+
+  // Sidebar-initiated ASR: enqueue a "transcribe" task (strictly-serial ASR
+  // lane, visible on the tasks page) instead of running recognition inline.
+  // The renderer attaches to the returned task and reads the transcript back
+  // from the paid cache once the task finishes.
+  ipcMain.handle("transcript:transcribe", async (_event, { bvid, page, track, title }) =>
+    exportQueue.enqueueTranscribe({
+      bvid: String(bvid || ""),
+      page,
+      track: track === "cc" ? "cc" : track === "ai" ? "ai" : null,
+      title: typeof title === "string" ? title : "",
+    }),
+  );
 
   ipcMain.handle("digest:analyze", async (_event, { videoId, page }) => {
     const page_ = Math.max(1, Number(page) || 1);
@@ -140,7 +164,10 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
       const settings = settingsStore.load();
       // Subtitle transcripts are not cached: analyze the paid ASR slot when
       // the user's standing choice is ASR, otherwise fetch a fresh subtitle
-      // with the user's preferred track (native CC vs AI).
+      // with the user's preferred track (native CC vs AI). The asr branch
+      // below is defensive only — sourceOverride and the asr slot are saved
+      // atomically and expire together, so a standing ASR choice always has
+      // its cached transcript; no fresh ASR ever runs from here.
       let transcript = cached.sourceOverride === "asr" ? cached.transcripts?.asr : null;
       if (!transcript?.success) {
         const result = await fetchTranscript({

@@ -341,11 +341,14 @@ app.whenReady().then(() => {
       const notice = buildFinishedNotice(task);
       if (notice) {
         // Summary notices ride the summary:finished channel (the toast's
-        // action opens the .md file); export notices jump to the tasks page.
+        // action opens the .md file); transcribe notices jump back to the
+        // transcript panel; export notices jump to the tasks page.
         const events =
           task.type === "summary"
             ? { foregroundEvent: "summary:finished", trayClickEvent: "summary:finished" }
-            : { foregroundEvent: "export:finished", trayClickEvent: "export:navigate-tasks" };
+            : task.type === "transcribe"
+              ? { foregroundEvent: "transcribe:finished", trayClickEvent: "transcribe:finished" }
+              : { foregroundEvent: "export:finished", trayClickEvent: "export:navigate-tasks" };
         pushNoticeToUser(notice, events);
       }
     },

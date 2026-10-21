@@ -30,6 +30,8 @@ function runNoticeAction() {
     if (notice.file) window.desktop.openWithDefaultApp(notice.file);
   } else if (notice.kind === "analysis") {
     active.value = "overview";
+  } else if (notice.kind === "transcribe") {
+    active.value = "transcript";
   } else {
     active.value = "tasks";
   }
@@ -74,7 +76,7 @@ onMounted(async () => {
   );
   off.push(window.desktop.onNavState((state) => (nav.value = state)));
   off.push(
-    window.desktop.onExportFinished((notice) => showFinishedNotice(notice)),
+    window.desktop.onExportFinished((notice) => showAppNotice(notice)),
   );
   off.push(
     window.desktop.onNavigateTasks(() => {
@@ -90,6 +92,9 @@ onMounted(async () => {
   );
   off.push(
     window.desktop.onSummaryFinished((notice) => showAppNotice(notice)),
+  );
+  off.push(
+    window.desktop.onTranscribeFinished((notice) => showAppNotice(notice)),
   );
   off.push(
     window.desktop.onAnalysisFinished((notice) => showAppNotice(notice)),

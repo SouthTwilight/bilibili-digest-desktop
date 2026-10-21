@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld("desktop", {
   getCollectionInfo: (videoId) => ipcRenderer.invoke("video:collection-info", videoId),
   getTranscript: (videoId, page, mode, track) =>
     ipcRenderer.invoke("transcript:get", { videoId, page, mode, track }),
+  transcribeEnqueue: (payload) => ipcRenderer.invoke("transcript:transcribe", payload),
   analyzeDigest: (videoId, page) => ipcRenderer.invoke("digest:analyze", { videoId, page }),
   seekVideo: (seconds) => ipcRenderer.invoke("video:seek", seconds),
   getCurrentTime: () => ipcRenderer.invoke("video:current-time"),
@@ -71,6 +72,7 @@ contextBridge.exposeInMainWorld("desktop", {
   onExportFinished: (callback) => subscribe("export:finished", callback),
   onNavigateTasks: (callback) => subscribe("export:navigate-tasks", callback),
   onSummaryFinished: (callback) => subscribe("summary:finished", callback),
+  onTranscribeFinished: (callback) => subscribe("transcribe:finished", callback),
   onAnalysisFinished: (callback) => subscribe("analysis:finished", callback),
 
   onLayout: (callback) => subscribe("layout:update", callback),

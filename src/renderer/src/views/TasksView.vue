@@ -26,6 +26,9 @@ function taskLabel(task) {
       ? `批量总结：${task.collectionTitle}`
       : `AI 总结：${task.results?.[0]?.title || ""}`;
   }
+  if (task.type === "transcribe") {
+    return `语音识别：${task.results?.[0]?.title || ""}`;
+  }
   if (task.type === "collection") return `合集导出：${task.collectionTitle}`;
   const title = task.results?.[0]?.title || "";
   return title ? `单视频导出：${title}` : "单视频导出";
@@ -97,7 +100,7 @@ function reveal(file) {
       <span class="task-status" :class="task.status">{{ task.status === "running" ? "进行中" : task.status === "done" ? "已完成" : "已取消" }}</span>
       <button v-if="task.status === 'running'" class="note-del" @click.stop="cancel(task)">取消</button>
       <button v-if="task.status !== 'canceled' && task.results.some(r => r.status === 'failed')" class="note-del" @click.stop="retry(task)">
-        {{ task.type === "summary" ? "重试失败项" : "全部改用 ASR 重试" }}
+        {{ task.type === "summary" || task.type === "transcribe" ? "重试失败项" : "全部改用 ASR 重试" }}
       </button>
     </div>
     <div class="task-progress">
@@ -115,7 +118,7 @@ function reveal(file) {
         <span v-if="result.status === 'running' && result.detail" class="task-item-detail">{{ result.detail }}</span>
         <span v-if="result.error" class="task-item-error" :title="result.error">{{ result.error }}</span>
         <button v-if="task.status !== 'canceled' && result.status === 'failed'" class="note-del" @click="retry(task, [i])">
-          {{ task.type === "summary" ? "重试" : "改下 ASR" }}
+          {{ task.type === "summary" || task.type === "transcribe" ? "重试" : "改下 ASR" }}
         </button>
         <button v-if="result.file && result.status === 'done'" class="note-del" @click="reveal(result.file)">打开位置</button>
       </div>
