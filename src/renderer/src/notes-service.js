@@ -15,8 +15,21 @@ export async function collectionTitleFor(bvid) {
   return title;
 }
 
+// videoDetails loads asynchronously after EVERY navigation (App.vue nulls it
+// first, then awaits getVideoDetails). Building a note context before it
+// arrives resolves the folder with an empty title ("未命名视频_BV…" / wrong
+// UP group) — notes read from there look gone, and notes WRITTEN there land
+// outside the real video folder. Wait briefly for the details instead.
+async function waitForVideoDetails() {
+  for (let i = 0; i < 30 && !videoDetails.value; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return videoDetails.value;
+}
+
 export async function videoNoteContext() {
   if (!currentVideo.value) return null;
+  await waitForVideoDetails();
   return {
     bvid: currentVideo.value.bvid,
     videoTitle: videoDetails.value?.title || "",

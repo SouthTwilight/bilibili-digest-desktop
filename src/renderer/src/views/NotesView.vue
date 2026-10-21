@@ -1,6 +1,6 @@
 <script setup>
 import { ref, watch, onMounted } from "vue";
-import { currentVideo, showAppNotice } from "../store.js";
+import { currentVideo, videoDetails, showAppNotice } from "../store.js";
 import { takeNoteAt, videoNoteContext } from "../notes-service.js";
 
 const notes = ref([]);
@@ -12,6 +12,11 @@ async function refresh() {
   if (showAll.value) {
     notes.value = await window.desktop.listNotes("all");
   } else if (currentVideo.value) {
+    // 视频切换瞬间 videoDetails 还是 null：此刻解析笔记目录会得到
+    // 「未命名视频_BV」的错误路径（读空/写错目录）。跳过这次刷新，
+    // details 就绪信号触发 watch 再刷，列表短暂停留旧值而不是闪
+    // 「还没有笔记」。
+    if (!videoDetails.value) return;
     notes.value = await window.desktop.listNotesFor(await videoNoteContext());
   } else {
     notes.value = [];
@@ -20,7 +25,14 @@ async function refresh() {
 
 onMounted(refresh);
 watch(
-  () => currentVideo.value && [currentVideo.value.bvid, currentVideo.value.page],
+  () => [
+    currentVideo.value?.bvid || "",
+    currentVideo.value?.page || 1,
+    // details null→对象 的就绪信号：同 BV 切分 P 时 title 不变、details
+    // 却被重新置空加载，没有这个信号该场景不会再触发刷新。
+    videoDetails.value ? 1 : 0,
+    videoDetails.value?.title || "",
+  ],
   () => refresh(),
 );
 watch(showAll, () => refresh());
