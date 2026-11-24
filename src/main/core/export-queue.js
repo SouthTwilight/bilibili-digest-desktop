@@ -3,9 +3,11 @@ import { join } from "node:path";
 import { mkdirSync, writeFileSync, statSync } from "node:fs";
 import { fetchTranscript as fetchTranscriptImpl } from "./transcript-service.js";
 import { fetchBilibiliView } from "./bilibili.js";
-import { buildMarkdownExport, buildHtmlExport, exportFileName } from "./export-render.js";
-import { videoDirSegments } from "./notes.js";
-import { fitUnder } from "./paths.js";
+import { buildMarkdownExport, buildHtmlExport, exportFileTimestamp } from "./export-render.js";
+import { ensureVideoDir, mechanicalVideoHead } from "./notes.js";
+import { exportDocBase, identityHead } from "./naming.js";
+import { fitUnder, assertFits } from "./paths.js";
+import { videoHeadOf } from "./library.js";
 import { summarizeExportedDoc, summarizeDocsBatch as runSummarizeDocsBatch } from "./summarize-doc.js";
 
 // Task queue for exports and AI summaries. Three lanes with different
@@ -97,6 +99,18 @@ export function expandIntoPageItems(task, item, pages) {
   return created;
 }
 
+// Where an export lands. The folder comes from ensureVideoDir — reused by
+// BV when the library already has the video, else computed with a head the
+// caller's condenser may have shortened — and the file takes its head FROM
+// that folder name, so a video's folder and its files always agree no
+// matter which rule produced the head. assertFits turns a path that not
+// even the floors can shrink into a message instead of an ENOENT.
+export async function exportTargetPath(context, { format = "md", page = 1, decideVideoHead = mechanicalVideoHead } = {}) {
+  const dir = await ensureVideoDir(context, decideVideoHead);
+  const head = videoHeadOf(dir) || identityHead(context.videoTitle) || "bilibili-digest";
+  return assertFits(fitUnder(dir, `${exportDocBase(head, page, exportFileTimestamp())}.${format}`));
+}
+
 export function createExportQueue({
   settingsStore,
   digestCache,
@@ -104,6 +118,7 @@ export function createExportQueue({
   summarizeDoc = summarizeExportedDoc,
   summarizeDocsBatch = runSummarizeDocsBatch,
   fetchTranscript = fetchTranscriptImpl,
+  decideVideoHead = mechanicalVideoHead,
 }) {
   const tasks = new Map();
   const subtitleLane = [];
@@ -149,25 +164,18 @@ export function createExportQueue({
     };
   }
 
-  // Unified three-level layout (shared with notes/pictures via
-  // videoDirSegments): collection videos under {合集}/{视频名_BV}/, standalone
-  // multi-P videos under {视频名_BV}/P{n}/, standalone singles grouped by
-  // uploader under {UP主}/{视频名_BV}/. fitUnder keeps the FULL path inside
-  // Windows' 260-char budget, trimming only when over.
-  function targetFile(task, item, format, page, view) {
-    const title = view?.title || item.videoTitle || item.title;
-    const fileName = `${exportFileName(title, page || item.page || 1)}.${format}`;
-    return fitUnder(
-      settingsStore.load().saveDir || ".",
-      ...videoDirSegments({
+  async function targetFile(task, item, format, page, view) {
+    return exportTargetPath(
+      {
+        base: settingsStore.load().saveDir || ".",
         collectionTitle: task.collectionTitle || "",
         channelName: view?.owner?.name || "",
-        videoTitle: title,
+        videoTitle: view?.title || item.videoTitle || item.title,
         bvid: item.bvid,
         pageCount: view?.pages?.length || 0,
         page: page || item.page || 1,
-      }),
-      fileName,
+      },
+      { format, page: page || item.page || 1, decideVideoHead },
     );
   }
 
@@ -253,7 +261,7 @@ export function createExportQueue({
 
       const content =
         format === "html" ? buildHtmlExport(video) : buildMarkdownExport(video);
-      const file = targetFile(task, { ...item, videoTitle: video.title }, format, page, view);
+      const file = await targetFile(task, { ...item, videoTitle: video.title }, format, page, view);
       mkdirSync(join(file, ".."), { recursive: true });
       writeFileSync(file, content, "utf8");
       item.itemStatus = "done";

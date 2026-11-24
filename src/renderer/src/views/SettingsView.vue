@@ -90,6 +90,7 @@ function maskKey(key) {
     </template>
     <div class="ro-row"><span>默认保存目录</span><b class="ro-dir" :title="settings.saveDir || ''">{{ settings.saveDir || "文档/BilibiliDigest（默认）" }}</b></div>
     <div class="ro-row"><span>导出并发数</span><b>{{ settings.exportConcurrency }}</b></div>
+    <div class="ro-row"><span>超长标题浓缩</span><b>{{ settings.condenseLongTitles === false ? "关闭" : "开启" }}</b></div>
     <p class="help" style="margin-top: 14px">字幕获取策略：自动获取仅使用 B 站字幕；语音识别需在字幕页手动开启（按量计费）。</p>
     <button class="btn" @click="startEditing">编辑</button>
   </div>
@@ -151,6 +152,14 @@ function maskKey(key) {
         <option v-for="n in [1, 2, 3, 4, 6, 8]" :key="n" :value="n">{{ n }}</option>
       </select>
       <p class="help">语音识别任务始终按服务商串行执行（豆包有并发配额限制）；此数值控制 B 站字幕类导出的并行度。</p>
+    </div>
+
+    <div class="field">
+      <label>超长标题浓缩</label>
+      <label class="help" style="display: flex; gap: 8px; align-items: flex-start">
+        <input v-model="settings.condenseLongTitles" type="checkbox" style="margin-top: 4px" />
+        <span>标题超过 30 个字时，调用一次文本模型浓缩成 16 个字以内的目录名和文件名（只对新导出的视频生效）。未填写 Key 或调用失败时自动改用直接截断，不影响导出。</span>
+      </label>
     </div>
 
     <button class="btn" type="submit">保存设置</button>

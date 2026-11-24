@@ -14,3 +14,6 @@ tests/tmp-notes-dir/
 tests/tmp-summarize-doc/
 tests/tmp-summary-queue/
 tests/tmp-lib/
+tests/tmp-library-identity/
+tests/tmp-title-condense/
+tests/tmp-settings-condense.json

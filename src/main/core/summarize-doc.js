@@ -7,10 +7,10 @@
 // seam), hard-splitting any oversized section by lines.
 
 import { readFileSync, writeFileSync } from "node:fs";
-import { dirname, basename, extname } from "node:path";
+import { basename } from "node:path";
 import { requestAiCompletion, loadPromptSection } from "./ai.js";
-import { sanitizeName } from "./export-render.js";
-import { fitUnder } from "./paths.js";
+import { parseDocName, composeName, partText, HEAD_MAX } from "./naming.js";
+import { summaryTargetFor } from "./library.js";
 
 export function splitDocIntoChunks(content, maxChars = 100_000) {
   const text = String(content || "");
@@ -92,26 +92,30 @@ export function buildSummaryNotice({ success, videoName, file, error }) {
     : { kind: "summary", ok: false, title: `AI 总结失败：${error || "未知错误"}`, file: null };
 }
 
-// Derive the video name a summary is "about": the document's H1 beats the
-// file name, and export-timestamp suffixes are stripped either way. Per-P
-// exports share one H1, so the source file's _Pn suffix is kept — each part
-// gets its own AI总结_视频名_Pn.md instead of overwriting its siblings.
+// The name a summary is ABOUT — the prompt title, notices, task labels: the
+// document's H1 beats its file name, and the source file's _Pn marker is
+// appended AFTER the clip, where no cap can reach it. The output FILE is not
+// named from here: it follows the document (see summaryTargetFor).
 export function docVideoName(filePath, content) {
-  const fileBase = basename(filePath, extname(filePath)).replace(
-    /[_-]\d{4}-\d{2}-\d{2}_\d{2}-\d{2}$/,
-    "",
-  );
+  const doc = parseDocName(basename(filePath));
   const titleMatch = String(content || "").match(/^#\s+(.+)$/m);
-  const name = (titleMatch?.[1] || fileBase).slice(0, 60);
-  const part = fileBase.match(/_P(\d+)$/);
-  return part ? `${name}_P${part[1]}` : name;
+  return composeName(titleMatch?.[1] || doc.head, HEAD_MAX, partText(doc.part));
 }
 
-// Summarize one exported markdown document and store the result next to it
-// as AI总结_视频名.md. Shared by the single-file enqueue and the collection
-// batch queue — `requestCompletion` is injectable for tests. Errors are
-// thrown (callers map codes like NO_AI_KEY); progress rides onProgress as
-// (title, subtitle) ticks.
+// Only transcript exports are summary input. A summary or notes file fed back
+// in produced files (AI总结_AI总结_…, …学习笔记) that no lookup ever expected.
+function assertSummarizable(filePath) {
+  if (parseDocName(basename(filePath)).kind !== "doc") {
+    throw Object.assign(new Error("只能对导出的字幕/学习资料文档生成 AI 总结。"), {
+      code: "NOT_A_DOCUMENT",
+    });
+  }
+}
+
+// Summarize one exported markdown document. Shared by the single-file
+// enqueue and the collection batch queue — `requestCompletion` is injectable
+// for tests. Errors are thrown (callers map codes like NO_AI_KEY); progress
+// rides onProgress as (title, subtitle) ticks.
 export async function summarizeExportedDoc({
   settings,
   filePath,
@@ -120,6 +124,7 @@ export async function summarizeExportedDoc({
   onUsage,
   requestCompletion = requestAiCompletion,
 }) {
+  assertSummarizable(filePath);
   const content = readFileSync(filePath, "utf8");
   const videoName = docVideoName(filePath, content);
   const userFocus = sanitizeFocus(focus);
@@ -168,10 +173,10 @@ export async function summarizeExportedDoc({
       ],
     });
   }
-  // Titles ride straight into the output filename; Windows-illegal
-  // characters in them (e.g. "AI游戏开发速成课|AI生成...") used to make
-  // writeFileSync fail with ENOENT. The prompt keeps the raw title.
-  const outFile = fitUnder(dirname(filePath), `AI总结_${sanitizeName(videoName) || "未命名"}.md`);
+  // The output file is found by identity: a re-summary overwrites the file
+  // that already exists for this document — whatever rule named it in the
+  // past — and a first summary is named after the document.
+  const outFile = summaryTargetFor(filePath);
   writeFileSync(outFile, text.trim() + "\n", "utf8");
   return { success: true, file: outFile, videoName };
 }
@@ -201,9 +206,18 @@ export async function summarizeDocsBatch({
   const userFocusBlock = userFocus
     ? loadPromptSection("summary.md", "User focus block", { userFocus })
     : "";
+  // Two documents can carry the same display name (same H1, same part); the
+  // model echoes the name back as its marker, so duplicates are numbered —
+  // otherwise both would receive one concatenated section.
+  const seenNames = new Map();
   const entries = docs.map((doc) => {
+    assertSummarizable(doc.filePath);
     const content = readFileSync(doc.filePath, "utf8");
-    return { ...doc, content, videoName: markerTitle(docVideoName(doc.filePath, content)) };
+    let videoName = markerTitle(docVideoName(doc.filePath, content));
+    const count = (seenNames.get(videoName) || 0) + 1;
+    seenNames.set(videoName, count);
+    if (count > 1) videoName = markerTitle(`${videoName} (${count})`);
+    return { ...doc, content, videoName };
   });
   const docsBlock = entries
     .map((entry, i) => `<<<文档 ${i + 1}/${entries.length}：${entry.videoName}>>>\n\n${entry.content}`)
@@ -244,7 +258,7 @@ export async function summarizeDocsBatch({
   for (const entry of entries) {
     const body = (buckets.get(entry.videoName) || []).join("\n").trim();
     if (body) {
-      const file = fitUnder(dirname(entry.filePath), `AI总结_${sanitizeName(entry.videoName) || "未命名"}.md`);
+      const file = summaryTargetFor(entry.filePath);
       writeFileSync(file, body + "\n", "utf8");
       results.push({ filePath: entry.filePath, videoName: entry.videoName, file });
     } else {

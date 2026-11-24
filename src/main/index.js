@@ -5,6 +5,7 @@ import { createSettingsStore } from "./core/settings-store.js";
 import { createDigestCache } from "./core/digest-cache.js";
 import { createNotesStore } from "./core/notes.js";
 import { createExportQueue, buildFinishedNotice } from "./core/export-queue.js";
+import { createTitleCondenser } from "./core/title-condense.js";
 import { initBilibiliHttp } from "./core/http.js";
 import { initFingerprintCapture } from "./core/cdp-fingerprint.js";
 import { parseVideoPageUrl } from "./core/bilibili.js";
@@ -329,13 +330,18 @@ app.whenReady().then(() => {
     saveDir: join(app.getPath("documents"), "BilibiliDigest"),
   });
   const digestCache = createDigestCache(join(app.getPath("userData"), "digest-cache"));
+  // The one head-decider for videos new to the library — notes and exports
+  // must agree on a name before the folder exists to settle it.
+  const decideVideoHead = createTitleCondenser({ settingsResolver: () => settingsStore.load() });
   const notesStore = createNotesStore({
     saveDirResolver: () => settingsStore.load().saveDir,
     legacyPath: join(app.getPath("userData"), "notes.json"),
+    decideVideoHead,
   });
   const exportQueue = createExportQueue({
     settingsStore,
     digestCache,
+    decideVideoHead,
     onTaskUpdate: (task) => {
       mainWindow?.webContents.send("export:task-update", task);
       const notice = buildFinishedNotice(task);

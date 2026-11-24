@@ -4,27 +4,21 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
-  unlinkSync,
 } from "node:fs";
 import { join, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
-import { fitUnder } from "./paths.js";
-
-// Keep CJK titles but drop characters that are illegal in Windows filenames.
-// Fullwidth lookalikes (：？"＼ etc.) are technically legal but normalized away
-// anyway to keep folder names predictable.
-function sanitizeDirName(name) {
-  return String(name || "")
-    .replace(/[\\/:*?"<>|]/g, "")
-    .replace(/[＼／：＊？＂＜＞｜]/g, "")
-    .replace(/[\u0000-\u001f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .substring(0, 60);
-}
+import { fitDirUnder, assertFits } from "./paths.js";
+import {
+  videoDirName,
+  collectionDirName,
+  uploaderDirName,
+  identityHead,
+  parseDocName,
+} from "./naming.js";
+import { findVideoDir } from "./library.js";
 
 export function videoFolderName(videoTitle, bvid) {
-  return `${sanitizeDirName(videoTitle) || "未命名视频"}_${bvid}`;
+  return videoDirName(videoTitle, bvid);
 }
 
 // Unified three-level library layout — the single source of truth shared by
@@ -37,21 +31,69 @@ export function videoFolderName(videoTitle, bvid) {
 export function videoDirSegments({ collectionTitle, channelName, videoTitle, bvid, pageCount, page }) {
   const videoDir = videoFolderName(videoTitle, bvid);
   if (collectionTitle) {
-    return [sanitizeDirName(collectionTitle) || "合集", videoDir];
+    return [collectionDirName(collectionTitle), videoDir];
   }
   if (Number(pageCount) > 1) {
     return [videoDir, `P${Math.max(1, Number(page) || 1)}`];
   }
-  return [sanitizeDirName(channelName) || "其他UP主", videoDir];
+  return [uploaderDirName(channelName), videoDir];
 }
 
+// An existing folder decides its own layout: P{n} subfolders once it has
+// any, otherwise flat. A top-level standalone folder (the multi-P layout)
+// starts them as soon as a multi-P context writes into it and nothing has
+// been laid out flat there yet.
+function withPartLayout(dir, context, base) {
+  const entries = listDir(dir);
+  const flatDocs = entries.some((entry) => entry.isFile() && parseDocName(entry.name).kind === "doc");
+  const topLevel = trimSeparators(dirname(dir)) === trimSeparators(join(base, "."));
+  const usePartFolders =
+    entries.some((entry) => entry.isDirectory() && /^P\d+$/.test(entry.name)) ||
+    (topLevel && Number(context.pageCount) > 1 && !flatDocs);
+  return usePartFolders ? join(dir, `P${Math.max(1, Number(context.page) || 1)}`) : dir;
+}
+
+function listDir(dir) {
+  try {
+    return readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+}
+
+function trimSeparators(path) {
+  return path.replace(/[\\/]+$/, "");
+}
+
+// READ path (sync): the folder a video's files live in — found by BV when
+// the library already has the video, computed from the context when not.
 export function resolveVideoDir(context) {
-  return fitUnder(String(context.base || "."), ...videoDirSegments(context));
+  const base = String(context.base || ".");
+  const existing = findVideoDir(base, context.bvid);
+  if (existing) return withPartLayout(existing, context, base);
+  return fitDirUnder(base, ...videoDirSegments(context));
+}
+
+// WRITE path (async): the same, except that a video new to the library gets
+// its head from `decideVideoHead` first — the caller may condense a long
+// title through the text model. Creating the folder is left to the writer
+// that has something to put in it.
+export async function ensureVideoDir(context, decideVideoHead = mechanicalVideoHead) {
+  const base = String(context.base || ".");
+  const existing = findVideoDir(base, context.bvid);
+  if (existing) return withPartLayout(existing, context, base);
+  const head = await decideVideoHead(context.videoTitle, context.bvid, base, context);
+  return fitDirUnder(base, ...videoDirSegments({ ...context, videoTitle: head }));
+}
+
+// The head a new folder gets when no model condenses the title.
+export function mechanicalVideoHead(title) {
+  return identityHead(title);
 }
 
 // Notes live in the user's save directory in the same three-level layout as
 // exports; the video folder also holds pictures and, later, summaries.
-export function createNotesStore({ saveDirResolver, legacyPath }) {
+export function createNotesStore({ saveDirResolver, legacyPath, decideVideoHead = mechanicalVideoHead }) {
   function migratedLegacyNotes() {
     try {
       if (!legacyPath || !existsSync(legacyPath)) return [];
@@ -105,9 +147,13 @@ export function createNotesStore({ saveDirResolver, legacyPath }) {
   return {
     videoDir,
 
-    add({ bvid, timestamp, text, videoTitle, channelName, collectionTitle, pageCount, page, imageBase64 }) {
-      const context = { collectionTitle, channelName, videoTitle, bvid, pageCount, page };
-      const file = storeFile(context);
+    async add({ bvid, timestamp, text, videoTitle, channelName, collectionTitle, pageCount, page, imageBase64 }) {
+      const base = saveDirResolver() || ".";
+      const dir = await ensureVideoDir(
+        { collectionTitle, channelName, videoTitle, bvid, pageCount, page, base },
+        decideVideoHead,
+      );
+      const file = assertFits(join(dir, "notes.json"));
       const notes = readFile(file);
       const note = {
         id: randomUUID(),
@@ -123,7 +169,7 @@ export function createNotesStore({ saveDirResolver, legacyPath }) {
       };
       if (imageBase64) {
         try {
-          note.picture = savePicture(videoDir(context), imageBase64, note.id, note.timestamp);
+          note.picture = savePicture(dir, imageBase64, note.id, note.timestamp);
         } catch {
           // A failed screenshot must never block the note itself.
         }

@@ -1,15 +1,16 @@
 import { ipcMain, dialog, shell, BrowserWindow } from "electron";
 import { writeFileSync, mkdirSync, statSync } from "node:fs";
-import { join, dirname, basename, extname } from "node:path";
+import { join, dirname, basename } from "node:path";
 import { fetchTranscript } from "./core/transcript-service.js";
 import { getVideoDetails, getCollectionInfo, collectionVideosFromView, fetchBilibiliView } from "./core/bilibili.js";
 import { analyzeTranscript } from "./core/ai.js";
 import { sanitizeFocus } from "./core/summarize-doc.js";
 import { translateTranscriptBatch } from "./core/translation.js";
 import { explainSelection, cleanupNoteText } from "./core/explain.js";
-import { scanLibrary, readLibraryFile, scanFolderForSummary, scanLibraryForSummary, markExported } from "./core/library.js";
+import { scanLibrary, readLibraryFile, scanFolderForSummary, scanLibraryForSummary, markExported, videoHeadOf } from "./core/library.js";
 import { detectCollectionUpdates } from "./core/collection-update.js";
-import { exportFileName } from "./core/export-render.js";
+import { exportFileTimestamp } from "./core/export-render.js";
+import { parseDocName, composeName, partText, identityHead, exportDocBase, HEAD_MAX } from "./core/naming.js";
 import { packSummaries } from "./core/summary-pack.js";
 import { fitUnder } from "./core/paths.js";
 
@@ -324,7 +325,8 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
   });
 
   // Compile a video's notes (with picture links) into a markdown document
-  // inside the video folder.
+  // inside the video folder. The file takes its head from the folder name,
+  // like every other file in it.
   ipcMain.handle("notes:export", (_event, video) => {
     try {
       const notes = notesStore.listFor(video || {});
@@ -339,7 +341,8 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
         if (note.picture) lines.push(`  ![](${note.picture})`);
       }
       lines.push("", "---", "由 Bilibili Digest 桌面版整理");
-      const file = fitUnder(dir, `笔记_${exportFileName(video?.videoTitle || "")}.md`);
+      const head = videoHeadOf(dir) || identityHead(video?.videoTitle || "") || "bilibili-digest";
+      const file = fitUnder(dir, `笔记_${exportDocBase(head, 1, exportFileTimestamp())}.md`);
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, lines.join("\n"), "utf8");
       return { success: true, file };
@@ -470,13 +473,13 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
 
   // ---- AI summary queue / packaging ----------------------------------------
 
-  // Display title for a queued summary item: the export file name minus its
-  // timestamp suffix (the _Pn part marker stays — each P summarizes on its
-  // own). The output file name is derived from the doc's H1 at run time.
+  // Display title for a queued summary item: the document's head with its
+  // _Pn marker appended after the clip, so parts of one long-titled video do
+  // not all collapse into the same label. The output file name is derived
+  // from the document at run time.
   function summaryItemTitle(filePath) {
-    return basename(filePath, extname(filePath))
-      .replace(/[_-]\d{4}-\d{2}-\d{2}_\d{2}-\d{2}$/, "")
-      .slice(0, 60);
+    const doc = parseDocName(basename(filePath));
+    return composeName(doc.head, HEAD_MAX, partText(doc.part));
   }
 
   // Enumerate a library folder from disk (fast, no network) for the
@@ -496,14 +499,23 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
       return { success: false, error: "未配置文本模型 API Key，请先到设置页填写。" };
     }
     const base = settings.saveDir;
-    const safeItems = (Array.isArray(items) ? items : [])
+    const requested = Array.isArray(items) ? items : [];
+    // Only transcript exports are summary input: summarizing an AI总结_ or
+    // 笔记_ file used to write derived files no lookup ever expected.
+    const safeItems = requested
       .filter((item) => String(item?.filePath || "").startsWith(String(base || "\u0000")))
+      .filter((item) => parseDocName(basename(String(item.filePath))).kind === "doc")
       .map((item) => ({
         title: item.title || summaryItemTitle(item.filePath),
         filePath: item.filePath,
         focus: sanitizeFocus(focus),
       }));
-    if (!safeItems.length) return { success: false, error: "没有可总结的文档。" };
+    if (!safeItems.length) {
+      return {
+        success: false,
+        error: requested.length ? "只能对导出的字幕/学习资料文档生成 AI 总结。" : "没有可总结的文档。",
+      };
+    }
     // User-typed summary direction: sanitize, remember verbatim (empty
     // included) so the dialog prefills the last direction.
     settingsStore.save({ ...settings, lastSummaryFocus: sanitizeFocus(focus) });

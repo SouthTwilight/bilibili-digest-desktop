@@ -38,7 +38,7 @@ const settings = { provider: "glm", aiApiKeys: { glm: "key" } };
 test("summarizeExportedDoc 单块：注入 focus、透传进度、写出 AI总结_", async () => {
   rmSync(tmp, { recursive: true, force: true });
   mkdirSync(tmp, { recursive: true });
-  const src = join(tmp, "视频A_BV1_2026-01-01_10-00.md");
+  const src = join(tmp, "视频A_2026-01-01_10-00.md");
   writeFileSync(src, "# 视频A\n\n## 完整字幕\n第一句", "utf8");
   const progress = [];
   const result = await summarizeExportedDoc({
@@ -54,6 +54,7 @@ test("summarizeExportedDoc 单块：注入 focus、透传进度、写出 AI总�
   });
   assert.equal(result.success, true);
   assert.equal(result.videoName, "视频A");
+  // 总结文件名取自文档文件名（不是 H1）：文档叫 视频A_时间戳，总结就叫 AI总结_视频A。
   assert.ok(result.file.endsWith(join(tmp, "AI总结_视频A.md")), result.file);
   assert.equal(readFileSync(result.file, "utf8"), "# 总结结果\n内容\n");
   assert.ok(progress.length >= 1, "至少一条进度");
@@ -63,7 +64,7 @@ test("summarizeExportedDoc 单块：注入 focus、透传进度、写出 AI总�
 test("summarizeExportedDoc 长文档走分块 + 合成", async () => {
   rmSync(tmp, { recursive: true, force: true });
   mkdirSync(tmp, { recursive: true });
-  const src = join(tmp, "长视频_BV2.md");
+  const src = join(tmp, "长视频_2026-01-01_10-00.md");
   // 三个大节拼出超过 100k 字符的文档，强制分块。
   const section = (n) => `## P${n} 第${n}部分\n${`第${n}节的字幕内容行，补足长度用。\n`.repeat(2500)}`;
   const content = ["# 长视频", "", section(1), section(2), section(3)].join("\n");
@@ -117,7 +118,8 @@ test("summarizeExportedDoc 保留 _Pn 后缀：每P总结独立成文件", async
   rmSync(tmp, { recursive: true, force: true });
   mkdirSync(join(tmp, "多P_BV9"), { recursive: true });
   const src = join(tmp, "多P_BV9", "多P_P2_2026-01-01_10-00.md");
-  // 每个P的导出文档 H1 相同——文件名的 _P2 后缀保证总结互不覆盖。
+  // 每个P的导出文档 H1 相同——总结文件名取自文档文件名，_P2 后缀跟着文档走，
+  // 各P总结互不覆盖；给模型看的标题（videoName）则是 H1 加 _P2。
   writeFileSync(src, "# 多P视频\n\n## 完整字幕\nP2 内容", "utf8");
   const result = await summarizeExportedDoc({
     settings,
@@ -125,7 +127,7 @@ test("summarizeExportedDoc 保留 _Pn 后缀：每P总结独立成文件", async
     requestCompletion: async () => "P2 总结",
   });
   assert.equal(result.videoName, "多P视频_P2");
-  assert.ok(result.file.endsWith(join(tmp, "多P_BV9", "AI总结_多P视频_P2.md")), result.file);
+  assert.ok(result.file.endsWith(join(tmp, "多P_BV9", "AI总结_多P_P2.md")), result.file);
   assert.equal(readFileSync(result.file, "utf8"), "P2 总结\n");
   rmSync(tmp, { recursive: true, force: true });
 });

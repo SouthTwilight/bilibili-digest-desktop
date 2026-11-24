@@ -86,6 +86,11 @@ export function normalize(input = {}, defaults = {}) {
     lastSummaryFocus: trimKey(input.lastSummaryFocus).slice(0, 500),
     // Doubao enforces a concurrency quota; 1 serializes ASR tasks by default.
     exportConcurrency: Math.min(8, Math.max(1, Number(input.exportConcurrency) || 4)),
+    // A video new to the library with a title over the condense threshold
+    // gets a short head from the text model (one call); anything less keeps
+    // its title as the head. Falls back to the mechanical clip whenever the
+    // model cannot be asked.
+    condenseLongTitles: input.condenseLongTitles !== false,
     onboarded: !!input.onboarded,
     supadataApiKey: "",
   };

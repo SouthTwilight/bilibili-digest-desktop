@@ -53,3 +53,15 @@ test("lastSummaryFocus: 默认空串、去首尾空白、非字符串容错、50
   assert.equal(normalize({ lastSummaryFocus: 42 }).lastSummaryFocus, "");
   assert.equal(normalize({ lastSummaryFocus: "x".repeat(600) }).lastSummaryFocus.length, 500);
 });
+
+test("condenseLongTitles: 默认开启，只有显式 false 才关闭，并能落盘重读", () => {
+  assert.equal(normalize({}).condenseLongTitles, true);
+  assert.equal(normalize({ condenseLongTitles: false }).condenseLongTitles, false);
+  assert.equal(normalize({ condenseLongTitles: "no" }).condenseLongTitles, true);
+
+  const path = new URL("./tmp-settings-condense.json", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
+  const store = createSettingsStore(path, { saveDir: "D:/exports" });
+  store.save({ condenseLongTitles: false });
+  assert.equal(createSettingsStore(path, { saveDir: "D:/exports" }).load().condenseLongTitles, false);
+  unlinkSync(path);
+});

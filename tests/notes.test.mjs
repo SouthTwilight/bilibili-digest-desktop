@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createNotesStore, videoFolderName, resolveVideoDir } from "../src/main/core/notes.js";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -38,9 +38,9 @@ test("resolveVideoDir 三级结构：合集 / UP主分组 / 多P按P文件夹", 
   );
 });
 
-test("notes land in collection / uploader / per-P folders", () => {
+test("notes land in collection / uploader / per-P folders", async () => {
   const store = freshStore(TMP);
-  store.add({
+  await store.add({
     bvid: "BV1111111111",
     timestamp: 42,
     text: "合集视频笔记",
@@ -48,7 +48,7 @@ test("notes land in collection / uploader / per-P folders", () => {
     channelName: "UP",
     collectionTitle: "我的合集",
   });
-  store.add({
+  await store.add({
     bvid: "BV2222222222",
     timestamp: 7,
     text: "单视频笔记",
@@ -56,7 +56,7 @@ test("notes land in collection / uploader / per-P folders", () => {
     channelName: "UP主甲",
     collectionTitle: "",
   });
-  store.add({
+  await store.add({
     bvid: "BV3333333333",
     timestamp: 9,
     text: "P2 的笔记",
@@ -89,24 +89,32 @@ test("notes land in collection / uploader / per-P folders", () => {
   assert.equal(store.listAll().length, 2);
 });
 
-test("save dir change is picked up dynamically", () => {
+test("save dir change is picked up dynamically", async () => {
   rmSync(TMP, { recursive: true, force: true });
   let dir = join(TMP, "a");
   const store = createNotesStore({ saveDirResolver: () => dir, legacyPath: null });
-  store.add({ bvid: "BV3333333333", timestamp: 1, text: "x", videoTitle: "T", channelName: "", collectionTitle: "" });
+  await store.add({ bvid: "BV3333333333", timestamp: 1, text: "x", videoTitle: "T", channelName: "", collectionTitle: "" });
   assert.ok(existsSync(join(TMP, "a", "其他UP主", "T_BV3333333333", "notes.json")));
   dir = join(TMP, "b");
-  store.add({ bvid: "BV3333333333", timestamp: 2, text: "y", videoTitle: "T", channelName: "", collectionTitle: "" });
+  await store.add({ bvid: "BV3333333333", timestamp: 2, text: "y", videoTitle: "T", channelName: "", collectionTitle: "" });
   assert.ok(existsSync(join(TMP, "b", "其他UP主", "T_BV3333333333", "notes.json")));
   rmSync(TMP, { recursive: true, force: true });
 });
 
 test("listAll 同时收集多P视频的旧直接 notes.json 与新 P*/notes.json", () => {
-  const store = freshStore(TMP);
+  rmSync(TMP, { recursive: true, force: true });
   // 旧布局：多P视频文件夹里直接有 notes.json。
-  store.add({ bvid: "BV4444444444", timestamp: 1, text: "旧笔记", videoTitle: "多P旧", channelName: "", collectionTitle: "" });
+  const videoDir = join(TMP, "多P旧_BV4444444444");
+  mkdirSync(videoDir, { recursive: true });
+  writeFileSync(join(videoDir, "notes.json"), JSON.stringify({ notes: [
+    { id: "n1", bvid: "BV4444444444", videoId: "BV4444444444@p1", text: "旧笔记", createdAt: 1 },
+  ] }));
   // 新布局：同一视频的 P2 文件夹里也有 notes.json。
-  store.add({ bvid: "BV4444444444", timestamp: 2, text: "P2 新笔记", videoTitle: "多P旧", channelName: "", collectionTitle: "", pageCount: 2, page: 2 });
+  mkdirSync(join(videoDir, "P2"), { recursive: true });
+  writeFileSync(join(videoDir, "P2", "notes.json"), JSON.stringify({ notes: [
+    { id: "n2", bvid: "BV4444444444", videoId: "BV4444444444@p2", text: "P2 新笔记", createdAt: 2 },
+  ] }));
+  const store = createNotesStore({ saveDirResolver: () => TMP, legacyPath: null });
   const all = store.listAll();
   assert.equal(all.length, 2);
   assert.ok(all.some((n) => n.text === "旧笔记"));

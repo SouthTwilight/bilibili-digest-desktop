@@ -2,6 +2,8 @@
 // buildMarkdownExport/buildHtmlExport. Every export lands inside the video's
 // own folder in the save directory ({saveDir}/{合集}/{视频名_BV}/).
 
+import { cleanTitle, clip, exportDocBase } from "./naming.js";
+
 function escapeHtml(text) {
   return String(text || "")
     .replace(/&/g, "&amp;")
@@ -10,14 +12,10 @@ function escapeHtml(text) {
     .replace(/"/g, "&quot;");
 }
 
+// A title made safe for a file name and capped at 60 characters. Names are
+// assembled in naming.js; this stays for callers that only need the head.
 export function sanitizeName(name) {
-  return String(name || "")
-    .replace(/[\\/:*?"<>|]/g, "")
-    .replace(/[＼／：＊？＂＜＞｜]/g, "")
-    .replace(/[\u0000-\u001f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .substring(0, 60);
+  return clip(cleanTitle(name));
 }
 
 export function exportFileTimestamp() {
@@ -32,9 +30,7 @@ export function exportFileTimestamp() {
 // P1/single-P videos keep the legacy name. The "all" label marks a merged
 // whole-video export.
 export function exportFileName(videoTitle, page = 1) {
-  const stamp = exportFileTimestamp();
-  const part = page === "all" ? "_全部P" : Number(page) > 1 ? `_P${Number(page)}` : "";
-  return `${sanitizeName(videoTitle) || "bilibili-digest"}${part}_${stamp}`;
+  return exportDocBase(videoTitle, page, exportFileTimestamp());
 }
 
 function timestampLabel(seconds) {
