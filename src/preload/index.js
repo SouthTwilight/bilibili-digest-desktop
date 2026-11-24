@@ -32,8 +32,10 @@ contextBridge.exposeInMainWorld("desktop", {
     ipcRenderer.invoke("summary:enqueue", { collectionTitle, items, focus }),
   summaryRetry: (taskId, itemIndexes) =>
     ipcRenderer.invoke("summary:retry", { taskId, itemIndexes }),
-  summaryPack: (collectionTitle, videoDirs) =>
-    ipcRenderer.invoke("summary:pack", { collectionTitle, videoDirs }),
+  libraryCompress: (dirPaths) =>
+    ipcRenderer.invoke("compress:enqueue", { items: (dirPaths || []).map((dirPath) => ({ dirPath })) }),
+  compressRetry: (taskId, itemIndexes) =>
+    ipcRenderer.invoke("compress:retry", { taskId, itemIndexes }),
   revealInFolder: (filePath) => ipcRenderer.invoke("shell:reveal", filePath),
   openDir: (dirPath) => ipcRenderer.invoke("library:open-dir", { dirPath }),
   navGo: (direction) => ipcRenderer.invoke("nav:go", direction),

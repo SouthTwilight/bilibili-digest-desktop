@@ -29,10 +29,17 @@ function taskLabel(task) {
   if (task.type === "transcribe") {
     return `语音识别：${task.results?.[0]?.title || ""}`;
   }
+  if (task.type === "compress") {
+    return (task.total || 0) > 1 ? `压缩：${task.total} 个文件夹` : `压缩：${task.results?.[0]?.title || ""}`;
+  }
   if (task.type === "collection") return `合集导出：${task.collectionTitle}`;
   const title = task.results?.[0]?.title || "";
   return title ? `单视频导出：${title}` : "单视频导出";
 }
+
+// Export items are retried with ASR (a different source may simply exist);
+// every other kind is retried as it was.
+const retriesAsIs = (task) => task.type === "summary" || task.type === "transcribe" || task.type === "compress";
 
 // Collection tasks can carry hundreds of items — they render collapsed by
 // default with a one-line digest; the user's per-task choice persists for
@@ -79,6 +86,7 @@ async function cancel(task) {
 
 async function retry(task, itemIndexes) {
   if (task.type === "summary") await window.desktop.summaryRetry(task.id, itemIndexes);
+  else if (task.type === "compress") await window.desktop.compressRetry(task.id, itemIndexes);
   else await window.desktop.retryAsr(task.id, itemIndexes);
   refresh();
 }
@@ -90,7 +98,7 @@ function reveal(file) {
 
 <template>
   <div v-if="!tasks.length" class="placeholder">
-    还没有任务。在字幕页点「导出」，或在导出库对合集点「AI总结」，任务会在这里排队执行——切换页面不会打断。
+    还没有任务。在字幕页点「导出」，或在导出库勾选后点「AI总结」「压缩」，任务会在这里排队执行——切换页面不会打断。
   </div>
 
   <div v-for="task in tasks" :key="task.id" class="task-card">
@@ -100,7 +108,7 @@ function reveal(file) {
       <span class="task-status" :class="task.status">{{ task.status === "running" ? "进行中" : task.status === "done" ? "已完成" : "已取消" }}</span>
       <button v-if="task.status === 'running'" class="note-del" @click.stop="cancel(task)">取消</button>
       <button v-if="task.status !== 'canceled' && task.results.some(r => r.status === 'failed')" class="note-del" @click.stop="retry(task)">
-        {{ task.type === "summary" || task.type === "transcribe" ? "重试失败项" : "全部改用 ASR 重试" }}
+        {{ retriesAsIs(task) ? "重试失败项" : "全部改用 ASR 重试" }}
       </button>
     </div>
     <div class="task-progress">
@@ -118,7 +126,7 @@ function reveal(file) {
         <span v-if="result.status === 'running' && result.detail" class="task-item-detail">{{ result.detail }}</span>
         <span v-if="result.error" class="task-item-error" :title="result.error">{{ result.error }}</span>
         <button v-if="task.status !== 'canceled' && result.status === 'failed'" class="note-del" @click="retry(task, [i])">
-          {{ task.type === "summary" || task.type === "transcribe" ? "重试" : "改下 ASR" }}
+          {{ retriesAsIs(task) ? "重试" : "改下 ASR" }}
         </button>
         <button v-if="result.file && result.status === 'done'" class="note-del" @click="reveal(result.file)">打开位置</button>
       </div>

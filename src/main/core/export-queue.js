@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { mkdirSync, writeFileSync, statSync } from "node:fs";
 import { fetchTranscript as fetchTranscriptImpl } from "./transcript-service.js";
 import { fetchBilibiliView } from "./bilibili.js";
@@ -9,15 +9,19 @@ import { exportDocBase, identityHead } from "./naming.js";
 import { fitUnder, assertFits } from "./paths.js";
 import { videoHeadOf } from "./library.js";
 import { summarizeExportedDoc, summarizeDocsBatch as runSummarizeDocsBatch } from "./summarize-doc.js";
+import { compressFolder as compressFolderImpl } from "./archive.js";
 
-// Task queue for exports and AI summaries. Three lanes with different
-// concurrency:
+// Task queue for exports, AI summaries and compression. Four lanes with
+// different concurrency:
 //   subtitle lane — videos with Bilibili subtitle tracks, concurrency from
 //     settings.exportConcurrency (free API calls, safe to parallelize);
 //   asr lane — videos the user opted into ASR, strictly serial (Doubao has a
 //     concurrency quota; Bailian bills per task);
 //   summary lane — AI summaries of exported documents (type "summary"),
-//     concurrency also from settings.exportConcurrency (text-model calls).
+//     concurrency also from settings.exportConcurrency (text-model calls);
+//   compress lane — zipping library folders (type "compress"), strictly
+//     serial: one archive at a time, so progress reads cleanly and a folder
+//     is never zipped twice at once.
 // Tasks survive browsing: the queue lives in the main process and keeps
 // running no matter what page the browser view shows.
 
@@ -40,6 +44,15 @@ export function buildFinishedNotice(task) {
           ? `（${results.length} 个视频）`
           : "";
     return { kind: "summary", ok: failed === 0, title: `${scope}${suffix}`, file: succeeded[0]?.file || null };
+  }
+  if (task.type === "compress") {
+    const title =
+      failed > 0
+        ? `压缩完成：成功 ${succeeded.length}，失败 ${failed}`
+        : results.length > 1
+          ? `压缩完成（${succeeded.length} 个压缩包）`
+          : `压缩完成：${succeeded[0]?.title || results[0]?.title || ""}`;
+    return { kind: "compress", ok: failed === 0, title, file: succeeded[0]?.file || null };
   }
   const singleLabel =
     task.type === "summary"
@@ -119,13 +132,16 @@ export function createExportQueue({
   summarizeDocsBatch = runSummarizeDocsBatch,
   fetchTranscript = fetchTranscriptImpl,
   decideVideoHead = mechanicalVideoHead,
+  compressFolder = compressFolderImpl,
 }) {
   const tasks = new Map();
   const subtitleLane = [];
   const asrLane = [];
   const summaryLane = [];
+  const compressLane = [];
   let subtitleRunning = 0;
   let summaryRunning = 0;
+  let compressBusy = false;
 
   // Lane routing must agree with runItem's effective-source resolution: a
   // single-video export reaches the queue as sourceMode "asr" (no useAsr
@@ -492,17 +508,72 @@ export function createExportQueue({
     }
   }
 
+  // One folder at a time. compressFolder reports each file it finishes and
+  // the item's detail carries that count to the tasks page ("正在压缩…
+  // 37/95"). A folder with thousands of files would push an update per file,
+  // so progress updates are held to roughly one per 100ms, plus the last.
+  async function runCompressItem(task, item) {
+    item.itemStatus = "running";
+    item.detail = "正在压缩…";
+    notify(task);
+    let shownAt = 0;
+    try {
+      const result = await compressFolder({
+        saveDir: settingsStore.load().saveDir,
+        dirPath: item.dirPath,
+        onProgress: (done, total) => {
+          item.detail = `正在压缩… ${done}/${total}`;
+          if (done === total || Date.now() - shownAt >= 100) {
+            shownAt = Date.now();
+            notify(task);
+          }
+        },
+      });
+      if (result.success) {
+        item.itemStatus = "done";
+        item.file = result.file;
+      } else {
+        item.itemStatus = "failed";
+        item.error = result.error;
+      }
+    } catch (error) {
+      item.itemStatus = "failed";
+      item.error = error.message || String(error);
+    } finally {
+      item.detail = null;
+      notify(task);
+    }
+  }
+
+  function pumpCompressLane() {
+    if (compressBusy) return;
+    const next = compressLane.shift();
+    if (!next) return;
+    compressBusy = true;
+    const { task, item } = next;
+    const run = task.status === "canceled" ? Promise.resolve() : runCompressItem(task, item);
+    run
+      .catch(() => {})
+      .finally(() => {
+        compressBusy = false;
+        maybeFinish(task);
+        pumpCompressLane();
+      });
+  }
+
   function enqueueItems(task) {
     for (const item of task.items) {
       item.itemStatus = "pending";
       const payload = { task, item };
       if (task.type === "summary") summaryLane.push(payload);
+      else if (task.type === "compress") compressLane.push(payload);
       else if (task.type === "transcribe" || itemWantsAsr(item)) asrLane.push(payload);
       else subtitleLane.push(payload);
     }
     pumpSubtitleLane();
     pumpAsrLane();
     pumpSummaryLane();
+    pumpCompressLane();
   }
 
   // Shared retry core: failed items go back to pending INSIDE the same task
@@ -639,6 +710,45 @@ export function createExportQueue({
       return retryFailed(taskId, itemIndexes, null, (task2, item) => {
         summaryLane.push({ task: task2, item });
         pumpSummaryLane();
+      });
+    },
+
+    // One task for the checked folders, one zip each. Idempotent while live:
+    // a folder still queued or compressing cannot be enqueued again.
+    enqueueCompress({ items }) {
+      const wanted = [
+        ...new Set((Array.isArray(items) ? items : []).map((item) => String(item?.dirPath || ""))),
+      ].filter(Boolean);
+      if (!wanted.length) return { success: false, error: "没有可压缩的文件夹。" };
+      for (const task of tasks.values()) {
+        if (task.type !== "compress" || task.status !== "running") continue;
+        const clash = task.items.find(
+          (item) =>
+            wanted.includes(item.dirPath) &&
+            (item.itemStatus === "pending" || item.itemStatus === "running"),
+        );
+        if (clash) {
+          return {
+            success: false,
+            error: `「${clash.title}」正在压缩，请等它完成、或在任务页取消后再试。`,
+          };
+        }
+      }
+      const task = enqueueTask({
+        type: "compress",
+        items: wanted.map((dirPath) => ({ dirPath, title: basename(dirPath) || dirPath })),
+      });
+      return { success: true, task: serializeTask(task) };
+    },
+
+    // Retry failed compression items as-is — e.g. after renaming the long
+    // folder that made a path unreadable in Explorer.
+    retryCompress(taskId, itemIndexes = null) {
+      const task = tasks.get(taskId);
+      if (task && task.type !== "compress") return { success: false, error: "不是压缩任务" };
+      return retryFailed(taskId, itemIndexes, null, (task2, item) => {
+        compressLane.push({ task: task2, item });
+        pumpCompressLane();
       });
     },
 

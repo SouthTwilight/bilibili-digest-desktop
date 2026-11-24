@@ -20,14 +20,22 @@ const active = ref("settings");
 const htmlFullscreen = ref(false);
 
 const finishedNotice = appNotice;
-const noticeActionLabel = computed(() =>
-  finishedNotice.value?.kind === "summary" || finishedNotice.value?.kind === "notes" ? "打开" : "查看",
-);
+const noticeActionLabel = computed(() => {
+  const kind = finishedNotice.value?.kind;
+  if (kind === "summary" || kind === "notes") return "打开";
+  if (kind === "compress" && finishedNotice.value?.file) return "打开位置";
+  return "查看";
+});
 function runNoticeAction() {
   const notice = finishedNotice.value;
   if (!notice) return;
   if (notice.kind === "summary" || notice.kind === "notes") {
     if (notice.file) window.desktop.openWithDefaultApp(notice.file);
+  } else if (notice.kind === "compress") {
+    // A finished compression shows where its archives landed; the "queued"
+    // notice has no file and opens the tasks page.
+    if (notice.file) window.desktop.revealInFolder(notice.file);
+    else active.value = "tasks";
   } else if (notice.kind === "analysis") {
     active.value = "overview";
   } else if (notice.kind === "transcribe") {

@@ -16,4 +16,7 @@ tests/tmp-summary-queue/
 tests/tmp-lib/
 tests/tmp-library-identity/
 tests/tmp-title-condense/
+tests/tmp-archive/
+tests/tmp-compress-queue/
+tests/tmp-ui-probe/
 tests/tmp-settings-condense.json

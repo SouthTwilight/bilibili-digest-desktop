@@ -11,7 +11,7 @@ import { scanLibrary, readLibraryFile, scanFolderForSummary, scanLibraryForSumma
 import { detectCollectionUpdates } from "./core/collection-update.js";
 import { exportFileTimestamp } from "./core/export-render.js";
 import { parseDocName, composeName, partText, identityHead, exportDocBase, HEAD_MAX } from "./core/naming.js";
-import { packSummaries } from "./core/summary-pack.js";
+import { isLibraryFolder } from "./core/archive.js";
 import { fitUnder } from "./core/paths.js";
 
 function pushProgress(payload) {
@@ -530,14 +530,21 @@ export function registerIpcHandlers({ settingsStore, digestCache, notesStore, ex
     exportQueue.retrySummary(taskId, itemIndexes),
   );
 
-  // Pack the AI summaries of selected video folders into a zip at the save
-  // dir root, mirroring the library layout (manifest.json included).
-  ipcMain.handle("summary:pack", (_event, { collectionTitle, videoDirs }) =>
-    packSummaries({
-      saveDir: settingsStore.load().saveDir,
-      collectionTitle: collectionTitle || "",
-      videoDirs: videoDirs || [],
-    }),
+  // Compress checked library folders (collections, uploader groups or
+  // standalone videos), one zip each — queued like exports and summaries, so
+  // progress and failures show on the tasks page.
+  ipcMain.handle("compress:enqueue", (_event, { items }) => {
+    const saveDir = settingsStore.load().saveDir;
+    const folders = [
+      ...new Set((Array.isArray(items) ? items : []).map((item) => String(item?.dirPath || ""))),
+    ].filter((dirPath) => isLibraryFolder(saveDir, dirPath));
+    if (!folders.length) return { success: false, error: "只能压缩导出库根目录下的文件夹。" };
+    return exportQueue.enqueueCompress({ items: folders.map((dirPath) => ({ dirPath })) });
+  });
+
+  // Retry failed compression items inside the original task.
+  ipcMain.handle("compress:retry", (_event, { taskId, itemIndexes }) =>
+    exportQueue.retryCompress(taskId, itemIndexes),
   );
 
   // Hide/show the embedded browser view while an app-level modal is open.

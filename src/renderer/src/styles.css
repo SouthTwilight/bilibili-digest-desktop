@@ -311,41 +311,16 @@ html {
 .coll-badge.exported { background: var(--surface-soft); color: var(--muted); }
 .coll-badge.newp { background: rgba(251, 114, 153, 0.14); color: #fb7299; }
 
-.library-layout { display: flex; flex-direction: column; gap: 12px; height: 100%; }
-/* The tree fills the whole panel while nothing is previewed; with a preview
- * open it shrinks to the upper portion. The toolbar sticks to the top of
- * the scrolling tree so it stays reachable in long libraries. */
-.library-tree { flex: 1; min-height: 0; overflow-y: auto; }
-.library-tree.compact { flex: 0 0 auto; max-height: 45%; }
-.library-toolbar {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-  padding: 6px 0 8px;
-  background: var(--surface-soft);
-  border-bottom: 1px solid var(--line);
-}
-.lib-row { display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-radius: 7px; font-size: 13px; cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.lib-row:hover { background: var(--surface); }
-.lib-row.active { background: rgba(251,114,153,.1); }
-.lib-row.coll { font-weight: 600; }
-.lib-row.video { padding-left: 18px; }
-.lib-row.file { padding-left: 36px; color: var(--muted); font-size: 12.5px; }
-.lib-caret { flex: 0 0 14px; color: var(--muted); font-size: 11px; }
-.lib-size { color: #9499a0; font-style: normal; font-size: 11px; margin-left: 4px; }
-.library-preview { flex: 1; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
-.preview-head { display: flex; align-items: center; gap: 8px; padding: 8px 2px; font-size: 12.5px; font-weight: 600; }
-.preview-head span { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* ---- export library preview body ----
+ * The library view (paged table, detail, preview) carries its own layout in
+ * LibraryView.vue; only the rendered-document styles are shared here. */
 .preview-body { flex: 1; min-height: 0; overflow-y: auto; user-select: text; }
 .preview-body iframe { width: 100%; height: 100%; border: none; background: #fff; border-radius: 10px; }
 .preview-body.md { font-size: 13px; line-height: 1.7; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
 .preview-body.md h2, .preview-body.md h3, .preview-body.md h4 { margin: 14px 0 6px; }
 .preview-body.md blockquote { margin: 6px 0; padding: 6px 12px; border-left: 3px solid var(--pink); background: rgba(251,114,153,.06); border-radius: 0 8px 8px 0; }
 .preview-body.md .md-li { padding-left: 14px; color: var(--ink); }
+.preview-body.md .md-link { color: var(--pink-strong); font-weight: 600; }
 .preview-body.md hr { border: none; border-top: 1px solid var(--line); margin: 12px 0; }
 .preview-body.md .md-gap { height: 6px; }
 .preview-body.plain { font-size: 12.5px; line-height: 1.7; white-space: pre-wrap; font-family: inherit; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
@@ -371,6 +346,9 @@ html {
 .task-item-status { flex: 0 0 auto; width: 16px; }
 .task-item-title { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .task-item-detail { flex: none; color: var(--muted); font-size: 11.5px; }
+/* One line with an ellipsis — an error can carry a 300-byte path; the full
+ * text is on the element's title. */
+.task-item-error { flex: 1 1 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #c0392b; }
 .collection-export-row-status.info { color: #0a7ca8; }
 
 /* ---- first-run onboarding ---- */
@@ -419,9 +397,6 @@ html {
 
 /* tiny pill buttons inside the transcript source row */
 .mode-btn.tiny { padding: 2px 10px; font-size: 11.5px; margin-left: 4px; vertical-align: middle; }
-
-.summarize-status { font-size: 12px; color: var(--muted); flex: 0 0 auto; }
-.preview-head { flex-wrap: wrap; row-gap: 4px; }
 
 /* ---- full-bleed sticky control bar (panel-scrolled pages) ---- */
 /* Cancels the panel's 16px/18px padding so the bar bleeds to the panel
